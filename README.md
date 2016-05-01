@@ -5,4 +5,4 @@ This script emails a user the latest Graphicast forecast images provided by the 
 ---
 
 1. Must configure prior to running
-	python main.py -c
+	* python main.py -c

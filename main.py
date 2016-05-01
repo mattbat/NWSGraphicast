@@ -125,6 +125,11 @@ def main(argv):
 		sys.exit()
 	
 	
+	if os.path.isfile(base_path + "/config.ini") == False:
+		print "ERROR: No config.ini"
+		print "Run python main.py -c first to setup"
+		sys.exit()
+	
 	
 	#Read Config File
 	Config.read(base_path + "/config.ini")

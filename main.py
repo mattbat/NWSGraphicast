@@ -12,9 +12,19 @@ from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+#Global Variables
+VERSION = 0.1
+html_images = ""
+base_path = sys.path[0]
+
 def printHelp():
-	print "NWSGraphicast, v0.1"
+	print ""
+	print "NWSGraphicast, v" + str(VERSION)
 	print "batchelderbot@gmail.com"
+	print ""
+	
+	with open (base_path + "/README.md") as f:
+		print f.read()
 
 def sendEmail(subject, to, username, password):
 	# Create the container (outer) email message.
@@ -167,6 +177,4 @@ def main(argv):
 		
 		
 #Start here
-html_images = ""
-base_path = sys.path[0]
 main(sys.argv)

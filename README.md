@@ -21,7 +21,8 @@ This script emails a user the latest Graphicast forecast images provided by the 
 	   Only Gmail is supported for sending at this time.  
 	   Example: `USERNAME@gmail.com`  
 	   
-	   Gmail security settings must be set to "Allow Less Secure Apps" for sign-in.  The configuration option is located here: https://myaccount.google.com/security?utm_source=OGB#signin  
+	   Gmail security settings must be set to "Allow Less Secure Apps" for sign-in.  
+	   The configuration option is located here: https://myaccount.google.com/security?utm_source=OGB#signin  
 	   It is *highly* recommended that you created a dedicated account to for this purpose since it must allow this insecure login setting.
 	 
 	* **Gmail Password**  

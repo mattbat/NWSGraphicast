@@ -116,6 +116,7 @@ def main(argv):
 			Config.set('UserConfig','gmailUsername',gmailUsername)
 			Config.set('UserConfig','gmailPassword',gmailPassword)
 			Config.set('UserConfig','emailTo',emailTo)
+			Config.set('UserConfig','last_xml_date'," ")
 			Config.write(cfgfile)
 			cfgfile.close() 
 			Continue = False

@@ -106,7 +106,8 @@ def main(argv):
 			gmailPassword = str(raw_input("Enter Gmail password: "))
 			emailTo = str(raw_input("Enter email to recieve notifications: "))
 			
-			os.remove(base_path + "/config.ini")
+			if os.path.isfile(base_path + "/config.ini"):
+				os.remove(base_path + "/config.ini")
 			cfgfile = open(base_path + "/config.ini",'w')
 			
 			# add the settings to the structure of the file, and lets write it out...

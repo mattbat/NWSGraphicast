@@ -13,7 +13,7 @@ This script emails a user the latest Graphicast forecast images provided by the 
 	     
 	* **Email Subject**  
 	   The subject for the email notification.  
-	   The current date & time will be postpended to this string
+	   The current date & time will be postpended to this string  
 	   Example: `NWS Norman`  
 	     
 	* **Gmail Username**  

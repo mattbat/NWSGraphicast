@@ -19,7 +19,7 @@ def printHelp():
 def sendEmail(subject, to, username, password):
 	# Create the container (outer) email message.
 	msg = MIMEMultipart()
-	msg['Subject'] = subject + str(datetime.datetime.now())
+	msg['Subject'] = subject + " " + str(datetime.datetime.now())
 	me = username
   	family = to
 	msg['From'] = me

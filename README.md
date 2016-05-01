@@ -6,8 +6,7 @@ This script emails a user the latest Graphicast forecast images provided by the 
 
 1. Must configure prior to running
 	* python main.py -c
-	
-	**Graphicast Address**
+	* *Graphicast Address* *
 	...Most NWS offices are supported.
 	...Find your local NWS office abbreviation here: http://www.wrh.noaa.gov/wrh/forecastoffice_tab.php
 	

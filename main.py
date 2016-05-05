@@ -87,12 +87,15 @@ def parseXML(root):
 		graphicNumber = graphicast.find('graphicNumber').text
 		
 		if isValid(StartTime, EndTime, FrontPage):
-			html_images += "<b>" + str(title) + "</b><br>" + str(description) + "<br>"
+			html_images += "<h1 style=\"font-size:100%;\"><b>" + str(title) + "</b>"
+			
+			if str(description).lower() != "none":
+				html_images += "<br>" + str(description) + "<br>"
 			
 			if radar == "1":
-				html_images += "<img src=" + "\"" + ImageLoop + "\"" + "><br><br>"
+				html_images += "<img src=" + "\"" + ImageLoop + "\"" + "></h1><br><br>"
 			else:
-				html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
+				html_images += "<img src=" + "\"" + FullImage + "\"" + "></h1><br><br>"
 				
 			#urllib.urlretrieve(SmallImage, "image_" + graphicNumber + ".jpg")
 

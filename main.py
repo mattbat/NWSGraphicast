@@ -7,6 +7,8 @@ import glob
 import datetime
 import time
 import ConfigParser
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
@@ -156,6 +158,29 @@ def main(argv):
 	gmailUsername = Config.get(section, 'gmailUsername')
 	gmailPassword = Config.get(section, 'gmailPassword')
 	emailTo = Config.get(section, 'emailTo')
+	
+	
+	#Retrieve Google Sheet
+	scope = ['https://spreadsheets.google.com/feeds']
+	credentials = ServiceAccountCredentials.from_json_keyfile_name('NWSGraphicast-14bedb8c9d18.json', scope)
+	gc = gspread.authorize(credentials)
+	
+
+	spreadsheet = gc.open("NWSGraphicast")
+	response_wks = spreadsheet.worksheet("Responses")
+
+	#Determine which NWS offices to update
+	responses = response_wks.get_all_values()
+	numrows = len(responses)
+	numcols = len(responses[0])
+	
+	#Skip the header row and timestamp col
+	for r in range(1, numrows):
+		for c in range(1, numcols):
+			print responses[r][c]
+	
+	
+	
 	
 	xml = base_path + "/graphicast.xml"
 	

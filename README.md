@@ -6,15 +6,10 @@ This script emails a user the latest Graphicast forecast images provided by the 
 
 1. Must configure prior to running
 	* python main.py -c
-	* **Graphicast Address**  
+	* **NWS Office Abbreviation**  
 	   Most NWS offices are supported.  
 	   Find your local NWS office abbreviation here: http://www.wrh.noaa.gov/wrh/forecastoffice_tab.php  
-	   Example: `http://www.srh.noaa.gov/images/fxc/ + OFFICE_ABBREVIATION + /graphicast/graphicast.xml`  
-	     
-	* **Email Subject**  
-	   The subject for the email notification.  
-	   The current date & time will be postpended to this string  
-	   Example: `NWS Norman`  
+	   Example: 'OUN' 
 	     
 	* **Gmail Username**  
 	   The gmail username used to send the email.

@@ -1,5 +1,4 @@
 import sys
-import xml.etree.ElementTree as ET
 import os
 import urllib
 import smtplib
@@ -8,6 +7,9 @@ import datetime
 import time
 import ConfigParser
 import gspread
+import json
+import ast
+import filecmp
 from oauth2client.service_account import ServiceAccountCredentials
 
 from email.mime.image import MIMEImage
@@ -15,7 +17,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 #Global Variables
-VERSION = 0.1
+VERSION = 0.2
 html_images = ""
 base_path = sys.path[0]
 
@@ -28,31 +30,25 @@ def printHelp():
 	with open (base_path + "/README.md") as f:
 		print f.read()
 
-def sendEmail(subject, to, username, password):
+def sendEmail(nwsOffice, to, username, password):
+
+	subject = "NWS - " + nwsOffice.upper()
+	
 	# Create the container (outer) email message.
 	msg = MIMEMultipart()
-	msg['Subject'] = subject + ": " + str(datetime.datetime.now())
+	msg['Subject'] = subject + ": " + str(datetime.datetime.now().strftime("%I:%M%p, %Y-%m-%d"))
 	me = username
   	family = to
 	msg['From'] = me
 	msg['To'] = family
 	msg.preamble = subject
 	
-	html = """<html><head></head><body><p><a href="http://www.srh.noaa.gov/oun/">NWS Norman</a><br><a href="http://www.spc.noaa.gov/">SPC</a><br><br>""" + html_images + """</p></body></html>"""
+	NWS_Office_Website = "http://www.weather.gov/" + nwsOffice
+	html = """<html><head></head><body><p><a href=""" + NWS_Office_Website + """>NWS Norman</a><br><a href="http://www.spc.noaa.gov/">SPC</a><br><br>""" + html_images + """</p></body></html>"""
 	
 	part1 = MIMEText(html, 'html')
 	
 	msg.attach(part1)
-
-	# Assume we know that the image files are all in PNG format
-	#path = "*.jpg"
-	#for file in glob.glob(path):
-		# Open the files in binary mode.  Let the MIMEImage class automatically
-    	# guess the specific image type.
-		#fp = open(file, 'rb')
-		#img = MIMEImage(fp.read())
-		#fp.close()
-		#msg.attach(img)
     	
 	s = smtplib.SMTP('smtp.gmail.com:587')
 	s.ehlo()
@@ -70,23 +66,23 @@ def isValid(StartTime, EndTime, FrontPage):
 		return True
 	else:
 		return False
-	
-def parseXML(root):
+			
+def parseData(data):
 
 	global html_images
-  	
-	for graphicast in root.iter('graphicast'):
-		StartTime = graphicast.find('StartTime').text
-		EndTime = graphicast.find('EndTime').text
-		FrontPage = graphicast.find('FrontPage').text
-		order = graphicast.find('order').text
-		radar = graphicast.find('radar').text
-		title = graphicast.find('title').text
-		description = graphicast.find('description').text
-		SmallImage = graphicast.find('SmallImage').text
-		FullImage = graphicast.find('FullImage').text
-		ImageLoop = graphicast.find('ImageLoop').text
-		graphicNumber = graphicast.find('graphicNumber').text
+	
+	for image in data:
+		StartTime = image['StartTime']
+		EndTime = image['EndTime']
+		FrontPage = image['FrontPage']
+		order = image['order']
+		radar = image['radar']
+		title = image['title']
+		description = image['description']
+		SmallImage = image['SmallImage'].replace('\/', '/')
+		FullImage = image['FullImage'].replace('\/', '/')
+		ImageLoop = image['ImageLoop'].replace('\/', '/')
+		graphicNumber = image['graphicNumber']
 		
 		if isValid(StartTime, EndTime, FrontPage):
 			html_images += "<b>" + str(title) + "</b>"
@@ -100,8 +96,7 @@ def parseXML(root):
 				html_images += "<img src=" + "\"" + ImageLoop + "\"" + "><br><br>"
 			else:
 				html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
-				
-			#urllib.urlretrieve(SmallImage, "image_" + graphicNumber + ".jpg")
+				#html_images += "<img src=" + "\"" + SmallImage + "\"" + "><br><br>"
 
 
 def main(argv):
@@ -117,8 +112,7 @@ def main(argv):
 			printHelp()
 			Continue = False
 		elif opt in ("-c", "--config"):
-			Graphicast_Address = str(raw_input("Enter web address of Graphicast XML: "))
-			emailSubject = str(raw_input("Enter default email subject: "))
+			nwsOffice = str(raw_input("Enter NWS Office abbreviation: "))
 			gmailUsername = str(raw_input("Enter Gmail username: "))
 			gmailPassword = str(raw_input("Enter Gmail password: "))
 			emailTo = str(raw_input("Enter email to recieve notifications: "))
@@ -129,12 +123,11 @@ def main(argv):
 			
 			# add the settings to the structure of the file, and lets write it out...
 			Config.add_section('UserConfig')
-			Config.set('UserConfig','graphicast_address',Graphicast_Address)
-			Config.set('UserConfig','emailSubject',emailSubject)
+			Config.set('UserConfig','nwsOffice',nwsOffice)
 			Config.set('UserConfig','gmailUsername',gmailUsername)
 			Config.set('UserConfig','gmailPassword',gmailPassword)
 			Config.set('UserConfig','emailTo',emailTo)
-			Config.set('UserConfig','last_xml_date'," ")
+			Config.set('UserConfig','lastUpdate'," ")
 			Config.write(cfgfile)
 			cfgfile.close() 
 			Continue = False
@@ -152,9 +145,8 @@ def main(argv):
 	#Read Config File
 	Config.read(base_path + "/config.ini")
 	section = "UserConfig"
-	Graphicast_Address = Config.get(section, 'graphicast_address')
-	Last_XML_Date = Config.get(section, 'last_xml_date')
-	emailSubject = Config.get(section, 'emailSubject')
+	NWS_Office = Config.get(section, 'nwsOffice')
+	Last_Update = Config.get(section, 'lastUpdate')
 	gmailUsername = Config.get(section, 'gmailUsername')
 	gmailPassword = Config.get(section, 'gmailPassword')
 	emailTo = Config.get(section, 'emailTo')
@@ -182,27 +174,24 @@ def main(argv):
 	
 	
 	
-	xml = base_path + "/graphicast.xml"
+	graphicast_data = base_path + "/graphicast.data"
+	old_graphicast_data = graphicast_data + "_last_update"
 	
-	#urllib.urlretrieve("http://www.srh.noaa.gov/images/fxc/oun/graphicast/graphicast.xml", xml)
-	urllib.urlretrieve(Graphicast_Address, xml)
 	
-	tree = ET.parse(xml)
-	root = tree.getroot()
+	mesonet_address = "http://www.mesonet.org/index.php/api/nws_products/graphicast_info/"
+	urllib.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
 	
-	created = root.find('head').find('product').find('creation-date').text
+	changed = not (filecmp.cmp(graphicast_data, old_graphicast_data))
 	
-	if (created != Last_XML_Date) or Force:
+	if changed or Force:
 		
-		#Save XML Date
-		cfgfile = open(base_path + "/config.ini",'w')
-		Config.set('UserConfig','last_xml_date',created)
-		Config.write(cfgfile)
-		cfgfile.close() 
-	
-		parseXML(root)
-		sendEmail(emailSubject, emailTo, gmailUsername, gmailPassword)
-		os.remove (xml)
+		with open(graphicast_data) as f:
+			flist=ast.literal_eval(f.read())
+		
+		parseData(flist)
+		
+		sendEmail(NWS_Office, emailTo, gmailUsername, gmailPassword)
+		os.rename (graphicast_data, old_graphicast_data)
 
 		
 		

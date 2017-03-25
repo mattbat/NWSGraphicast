@@ -181,7 +181,10 @@ def main(argv):
 	mesonet_address = "http://www.mesonet.org/index.php/api/nws_products/graphicast_info/"
 	urllib.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
 	
-	changed = not (filecmp.cmp(graphicast_data, old_graphicast_data))
+	if os.path.exists(old_graphicast_data):
+		changed = not (filecmp.cmp(graphicast_data, old_graphicast_data))
+	else:
+		changed = True
 	
 	if changed or Force:
 		

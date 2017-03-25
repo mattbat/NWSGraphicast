@@ -10,7 +10,7 @@ import ConfigParser
 import json
 import ast
 import filecmp
-from oauth2client.service_account import ServiceAccountCredentials
+#from oauth2client.service_account import ServiceAccountCredentials
 
 from email.mime.image import MIMEImage
 from email.mime.text import MIMEText

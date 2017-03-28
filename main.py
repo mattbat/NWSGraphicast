@@ -72,37 +72,42 @@ def isValid(StartTime, EndTime, FrontPage):
 	else:
 		return False
 			
-def parseData(data):
+def parseData(nwsOffice, data):
 
 	global html_images
 	html_images = ''
 	
 	for image in data:
-		StartTime = image['StartTime']
-		EndTime = image['EndTime']
-		FrontPage = image['FrontPage']
-		order = image['order']
-		radar = image['radar']
-		title = image['title']
-		description = image['description']
-		SmallImage = image['SmallImage'].replace('\/', '/')
-		FullImage = image['FullImage'].replace('\/', '/')
-		ImageLoop = image['ImageLoop'].replace('\/', '/')
-		graphicNumber = image['graphicNumber']
+		Office = image['Office']
 		
-		if isValid(StartTime, EndTime, FrontPage):
-			html_images += "<b>" + str(title) + "</b>"
+		if Office == "No Image Available":
+			print "NWS Graphicast not available for: " + nwsOffice.upper()
+		else:
+			StartTime = image['StartTime']
+			EndTime = image['EndTime']
+			FrontPage = image['FrontPage']
+			order = image['order']
+			radar = image['radar']
+			title = image['title']
+			description = image['description']
+			SmallImage = image['SmallImage'].replace('\/', '/')
+			FullImage = image['FullImage'].replace('\/', '/')
+			ImageLoop = image['ImageLoop'].replace('\/', '/')
+			graphicNumber = image['graphicNumber']
+		
+			if isValid(StartTime, EndTime, FrontPage):
+				html_images += "<b>" + str(title) + "</b>"
 			
-			if str(description).lower() != "none":
-				html_images += "<br>" + str(description) + "<br>"
-			else:
-				html_images += "<br>"
+				if str(description).lower() != "none":
+					html_images += "<br>" + str(description) + "<br>"
+				else:
+					html_images += "<br>"
 			
-			if radar == "1":
-				html_images += "<img src=" + "\"" + ImageLoop + "\"" + "><br><br>"
-			else:
-				html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
-				#html_images += "<img src=" + "\"" + SmallImage + "\"" + "><br><br>"
+				if radar == "1":
+					html_images += "<img src=" + "\"" + ImageLoop + "\"" + "><br><br>"
+				else:
+					html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
+					#html_images += "<img src=" + "\"" + SmallImage + "\"" + "><br><br>"
 
 
 def main(argv):
@@ -205,7 +210,7 @@ def main(argv):
 			if changed or Force:
 				with open(graphicast_data) as f:
 					flist=ast.literal_eval(f.read())
-					parseData(flist)
+					parseData(NWS_Office, flist)
 					sendEmail(NWS_Office, emailTo, gmailUsername, gmailPassword)
 	
 	

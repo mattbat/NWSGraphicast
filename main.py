@@ -81,7 +81,7 @@ def parseData(nwsOffice, data):
 		Office = image['Office']
 		
 		if Office == "No Image Available":
-			print "NWS Graphicast not available for: " + nwsOffice.upper()
+			html_images += "<b>" + "No Images Available" + "</b><br>"
 		else:
 			StartTime = image['StartTime']
 			EndTime = image['EndTime']

@@ -6,20 +6,22 @@ import glob
 import datetime
 import time
 import ConfigParser
-#import gspread
+import gspread
 import json
 import ast
 import filecmp
-#from oauth2client.service_account import ServiceAccountCredentials
+from oauth2client.service_account import ServiceAccountCredentials
 
 from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 #Global Variables
-VERSION = 0.2
+VERSION = 0.3
 html_images = ""
 base_path = sys.path[0]
+graphicastFileName = "graphicast.data"
+last_update = ".last_update"
 
 def printHelp():
 	print ""
@@ -43,8 +45,11 @@ def sendEmail(nwsOffice, to, username, password):
 	msg['To'] = family
 	msg.preamble = subject
 	
+	
+	
 	NWS_Office_Website = "http://www.weather.gov/" + nwsOffice
-	html = """<html><head></head><body><p><a href=""" + NWS_Office_Website + """>NWS Norman</a><br><a href="http://www.spc.noaa.gov/">SPC</a><br><br>""" + html_images + """</p></body></html>"""
+	Form_Website = "https://docs.google.com/forms/d/e/1FAIpQLSfxyivtsu929py3bbjGvbVIiasN_rw1kXbz0nNA2fNLQMUCVw/viewform?usp=sf_link"
+	html = """<html><head></head><body><p>""" + html_images + """<br><hr></p><p><a href=""" + NWS_Office_Website + """>""" + subject + """</a><br><a href="http://www.spc.noaa.gov/">Storm Prediction Center (SPC)</a><br><br>""" + """<a href=""" + Form_Website + """>""" + "Subscription Preferences" + """</a>""" + """</p></body></html>"""
 	
 	part1 = MIMEText(html, 'html')
 	
@@ -70,6 +75,7 @@ def isValid(StartTime, EndTime, FrontPage):
 def parseData(data):
 
 	global html_images
+	html_images = ''
 	
 	for image in data:
 		StartTime = image['StartTime']
@@ -145,56 +151,70 @@ def main(argv):
 	#Read Config File
 	Config.read(base_path + "/config.ini")
 	section = "UserConfig"
-	NWS_Office = Config.get(section, 'nwsOffice')
-	Last_Update = Config.get(section, 'lastUpdate')
+	#NWS_Office = Config.get(section, 'nwsOffice')
+	#Last_Update = Config.get(section, 'lastUpdate')
 	gmailUsername = Config.get(section, 'gmailUsername')
 	gmailPassword = Config.get(section, 'gmailPassword')
-	emailTo = Config.get(section, 'emailTo')
+	#emailTo = Config.get(section, 'emailTo')
 	
 	
 	#Retrieve Google Sheet
-	#scope = ['https://spreadsheets.google.com/feeds']
-	#credentials = ServiceAccountCredentials.from_json_keyfile_name('NWSGraphicast-14bedb8c9d18.json', scope)
-	#gc = gspread.authorize(credentials)
+	scope = ['https://spreadsheets.google.com/feeds']
+	credentials = ServiceAccountCredentials.from_json_keyfile_name('NWSGraphicast-14bedb8c9d18.json', scope)
+	gc = gspread.authorize(credentials)
 	
 
-	#spreadsheet = gc.open("NWSGraphicast")
-	#response_wks = spreadsheet.worksheet("Responses")
+	spreadsheet = gc.open("NWSGraphicast")
+	response_wks = spreadsheet.worksheet("Responses")
 
 	#Determine which NWS offices to update
-	#responses = response_wks.get_all_values()
-	#numrows = len(responses)
-	#numcols = len(responses[0])
+	responses = response_wks.get_all_values()
+	numrows = len(responses)
+	numcols = len(responses[0])
 	
 	#Skip the header row and timestamp col
-	#for r in range(1, numrows):
-	#	for c in range(1, numcols):
-	#		print responses[r][c]
+	for r in range(1, numrows):
 	
-	
-	
-	
-	graphicast_data = base_path + "/graphicast.data"
-	old_graphicast_data = graphicast_data + "_last_update"
-	
-	
-	mesonet_address = "http://www.mesonet.org/index.php/api/nws_products/graphicast_info/"
-	urllib.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
-	
-	if os.path.exists(old_graphicast_data):
-		changed = not (filecmp.cmp(graphicast_data, old_graphicast_data))
-	else:
-		changed = True
-	
-	if changed or Force:
+		emailTo = responses[r][1]
+		zipcode = responses[r][2]
+		emailFrequency = responses[r][3]
 		
-		with open(graphicast_data) as f:
-			flist=ast.literal_eval(f.read())
+		if emailFrequency != "No Emails":
+
+			#Find NWS Office
+			getNWSOfficeURL = "http://forecast.weather.gov/zipcity.php" + "?inputstring=" + zipcode
+			nwsOfficeURLResponse = urllib.urlopen(getNWSOfficeURL).geturl().lower().split('site=')
+			NWS_Office = nwsOfficeURLResponse[1][0:3]
+
+			#Determine files
+			
+			graphicast_data = base_path + "/" + graphicastFileName + "." + NWS_Office
+			old_graphicast_data = graphicast_data + last_update
 		
-		parseData(flist)
-		
-		sendEmail(NWS_Office, emailTo, gmailUsername, gmailPassword)
-		os.rename (graphicast_data, old_graphicast_data)
+			#Retrieve Graphicasts for given NWS Office
+			mesonet_address = "http://www.mesonet.org/index.php/api/nws_products/graphicast_info/"
+			urllib.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
+	
+			#Determine if there's been an update
+			if os.path.exists(old_graphicast_data):
+				changed = not (filecmp.cmp(graphicast_data, old_graphicast_data))
+			else:
+				changed = True
+	
+			#Process Data
+			if changed or Force:
+				with open(graphicast_data) as f:
+					flist=ast.literal_eval(f.read())
+					parseData(flist)
+					sendEmail(NWS_Office, emailTo, gmailUsername, gmailPassword)
+	
+	
+	#Rename files
+	files = os.listdir(base_path)
+	for currentFile in files:
+		if graphicastFileName in currentFile:
+			if last_update not in currentFile:
+				os.rename (currentFile, currentFile + last_update)
 
 		
 		

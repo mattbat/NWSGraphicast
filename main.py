@@ -165,7 +165,7 @@ def main(argv):
 	
 	#Retrieve Google Sheet
 	scope = ['https://spreadsheets.google.com/feeds']
-	credentials = ServiceAccountCredentials.from_json_keyfile_name('NWSGraphicast-14bedb8c9d18.json', scope)
+	credentials = ServiceAccountCredentials.from_json_keyfile_name(base_path + '/NWSGraphicast-14bedb8c9d18.json', scope)
 	gc = gspread.authorize(credentials)
 	
 

@@ -219,7 +219,7 @@ def main(argv):
 	for currentFile in files:
 		if graphicastFileName in currentFile:
 			if last_update not in currentFile:
-				os.rename (currentFile, currentFile + last_update)
+				os.rename (base_path + "/" + currentFile, base_path + "/" + currentFile + last_update)
 
 		
 		

@@ -72,7 +72,7 @@ def isValid(StartTime, EndTime, FrontPage):
 	else:
 		return False
 			
-def parseData(nwsOffice, data):
+def parseData(nwsOffice, imageSize, data):
 
 	global html_images
 	html_images = ''
@@ -106,8 +106,10 @@ def parseData(nwsOffice, data):
 				if radar == "1":
 					html_images += "<img src=" + "\"" + ImageLoop + "\"" + "><br><br>"
 				else:
-					html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
-					#html_images += "<img src=" + "\"" + SmallImage + "\"" + "><br><br>"
+					if imageSize == "Large":
+						html_images += "<img src=" + "\"" + FullImage + "\"" + "><br><br>"
+					else:
+						html_images += "<img src=" + "\"" + SmallImage + "\"" + "><br><br>"
 
 
 def main(argv):
@@ -183,6 +185,7 @@ def main(argv):
 		emailTo = responses[r][1]
 		zipcode = responses[r][2]
 		emailFrequency = responses[r][3]
+		Image_Size = responses[r][4]
 		
 		if emailFrequency != "No Emails":
 
@@ -210,7 +213,7 @@ def main(argv):
 			if changed or Force:
 				with open(graphicast_data) as f:
 					flist=ast.literal_eval(f.read())
-					parseData(NWS_Office, flist)
+					parseData(NWS_Office, Image_Size, flist)
 					sendEmail(NWS_Office, emailTo, gmailUsername, gmailPassword)
 	
 	

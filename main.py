@@ -166,10 +166,9 @@ def main(argv):
 	
 	
 	#Retrieve Google Sheet
-	scope = ['https://spreadsheets.google.com/feeds']
+	scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 	credentials = ServiceAccountCredentials.from_json_keyfile_name(base_path + '/NWSGraphicast-14bedb8c9d18.json', scope)
 	gc = gspread.authorize(credentials)
-	
 
 	spreadsheet = gc.open("NWSGraphicast")
 	response_wks = spreadsheet.worksheet("Responses")

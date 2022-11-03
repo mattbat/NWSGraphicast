@@ -2,6 +2,8 @@
 
 This script emails a user the latest Graphicast forecast images provided by the National Weather Service (NWS).
 
+
+<NOTE: The following instructions need to be updated>
 ---
 
 1. Must configure prior to running

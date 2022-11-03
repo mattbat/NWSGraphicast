@@ -1,5 +1,8 @@
 *.ini
 *.json
+archive
+*last_update
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

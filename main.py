@@ -1,11 +1,11 @@
 import sys
 import os
-import urllib
+import urllib.request
 import smtplib
 import glob
 import datetime
 import time
-import ConfigParser
+import configparser
 import gspread
 import json
 import ast
@@ -16,21 +16,24 @@ from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from multiprocessing import context
+import ssl
+
 #Global Variables
-VERSION = 0.3
+VERSION = 0.4
 html_images = ""
 base_path = sys.path[0]
 graphicastFileName = "graphicast.data"
 last_update = ".last_update"
 
 def printHelp():
-	print ""
-	print "NWSGraphicast, v" + str(VERSION)
-	print "batchelderbot@gmail.com"
-	print ""
+	print ("")
+	print ("NWSGraphicast, v" + str(VERSION))
+	print ("batchelderbot@gmail.com")
+	print ("")
 	
 	with open (base_path + "/README.md") as f:
-		print f.read()
+		print (f.read())
 
 def sendEmail(nwsOffice, to, username, password):
 
@@ -40,7 +43,7 @@ def sendEmail(nwsOffice, to, username, password):
 	msg = MIMEMultipart()
 	msg['Subject'] = subject + ": " + str(datetime.datetime.now().strftime("%I:%M%p, %Y-%m-%d"))
 	me = username
-  	family = to
+	family = to
 	msg['From'] = me
 	msg['To'] = family
 	msg.preamble = subject
@@ -54,15 +57,12 @@ def sendEmail(nwsOffice, to, username, password):
 	part1 = MIMEText(html, 'html')
 	
 	msg.attach(part1)
-    	
-	s = smtplib.SMTP('smtp.gmail.com:587')
-	s.ehlo()
-	s.starttls()
-	s.ehlo()
-	s.login(username, password)
-	s.sendmail(me, family, msg.as_string())
-	s.quit()
+	
+	context = ssl.create_default_context()
 
+	with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
+		smtp.login(username, password)
+		smtp.sendmail(username, to, msg.as_string())
 
 def isValid(StartTime, EndTime, FrontPage):
 	epochTime = int(time.time())
@@ -116,7 +116,7 @@ def main(argv):
 	Force = False
 	Continue = True
 	
-	Config = ConfigParser.ConfigParser()
+	Config = configparser.ConfigParser()
 	
 	for opt in argv:
 		if opt in ("-f", "--force"):
@@ -150,8 +150,8 @@ def main(argv):
 	
 	
 	if os.path.isfile(base_path + "/config.ini") == False:
-		print "ERROR: No config.ini"
-		print "Run python main.py -c first to setup"
+		print ("ERROR: No config.ini")
+		print ("Run python main.py -c first to setup")
 		sys.exit()
 	
 	
@@ -190,7 +190,7 @@ def main(argv):
 
 			#Find NWS Office
 			getNWSOfficeURL = "http://forecast.weather.gov/zipcity.php" + "?inputstring=" + zipcode
-			nwsOfficeURLResponse = urllib.urlopen(getNWSOfficeURL).geturl().lower().split('site=')
+			nwsOfficeURLResponse = urllib.request.urlopen(getNWSOfficeURL).geturl().lower().split('site=')
 			NWS_Office = nwsOfficeURLResponse[1][0:3]
 
 			#Determine files
@@ -200,7 +200,7 @@ def main(argv):
 		
 			#Retrieve Graphicasts for given NWS Office
 			mesonet_address = "http://www.mesonet.org/index.php/api/nws_products/graphicast_info/"
-			urllib.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
+			urllib.request.urlretrieve(mesonet_address + NWS_Office, graphicast_data)
 	
 			#Determine if there's been an update
 			if os.path.exists(old_graphicast_data):

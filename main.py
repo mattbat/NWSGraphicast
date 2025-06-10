@@ -20,7 +20,7 @@ from multiprocessing import context
 import ssl
 
 #Global Variables
-VERSION = 0.4
+VERSION = 0.5
 html_images = ""
 base_path = sys.path[0]
 graphicastFileName = "graphicast.data"
@@ -64,10 +64,10 @@ def sendEmail(nwsOffice, to, username, password):
 		smtp.login(username, password)
 		smtp.sendmail(username, to, msg.as_string())
 
-def isValid(StartTime, EndTime, FrontPage):
+def isValid(StartTime, EndTime):
 	epochTime = int(time.time())
 
-	if (epochTime > int(StartTime) and epochTime < int(EndTime) and FrontPage == "true"):
+	if (epochTime > int(StartTime) and epochTime < int(EndTime)):
 		return True
 	else:
 		return False
@@ -94,8 +94,8 @@ def parseData(nwsOffice, imageSize, data):
 			FullImage = image['FullImage'].replace('\/', '/')
 			ImageLoop = image['ImageLoop'].replace('\/', '/')
 			graphicNumber = image['graphicNumber']
-		
-			if isValid(StartTime, EndTime, FrontPage):
+
+			if isValid(StartTime, EndTime):
 				html_images += "<b>" + str(title) + "</b>"
 			
 				if str(description).lower() != "none":
@@ -125,10 +125,10 @@ def main(argv):
 			printHelp()
 			Continue = False
 		elif opt in ("-c", "--config"):
-			nwsOffice = str(raw_input("Enter NWS Office abbreviation: "))
-			gmailUsername = str(raw_input("Enter Gmail username: "))
-			gmailPassword = str(raw_input("Enter Gmail password: "))
-			emailTo = str(raw_input("Enter email to recieve notifications: "))
+			nwsOffice = str(input("Enter NWS Office abbreviation: "))
+			gmailUsername = str(input("Enter Gmail username: "))
+			gmailPassword = str(input("Enter Gmail password: "))
+			emailTo = str(input("Enter email to receive notifications: "))
 			
 			if os.path.isfile(base_path + "/config.ini"):
 				os.remove(base_path + "/config.ini")

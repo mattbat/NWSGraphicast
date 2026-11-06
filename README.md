@@ -36,6 +36,16 @@ The earlier Raspberry Pi / Google Sheets version is preserved in git history (co
 4. To test, open the Actions tab, choose "graphicast" and "Run workflow": first with `dry_run`
    (the rendered email is uploaded as an artifact), then with `force` to send a real email.
 
+## Go-live checklist (moving off the Raspberry Pi)
+
+1. Add the three secrets (see Setup).
+2. Send a `[TEST]` email from the branch (next section) and check it on your phone: images,
+   layout, dark mode.
+3. Merge to `master`. Then Actions → graphicast → Run workflow, first with `dry_run`, then with
+   `force`. That creates the `state` and `images` branches.
+4. Run alongside the Pi for a few days (expect duplicates), then comment out the Pi's cron
+   line (`crontab -e`).
+
 ## Testing a change by email (before merging)
 
 `.github/workflows/test-email.yml` sends one real email from any branch except `master`. Push

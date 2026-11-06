@@ -26,3 +26,4 @@ markers = ["live: hits real network; run with GRAPHICAST_LIVE=1"]
 # Long lines are inherent to the inline-styled HTML email templates.
 "graphicast/render.py" = ["E501"]
 "docs/email_mockup.py" = ["E501"]
+"docs/layout_mockup.py" = ["E501"]

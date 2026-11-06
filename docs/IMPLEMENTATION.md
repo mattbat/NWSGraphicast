@@ -695,3 +695,167 @@ Keep `html.escape` on every feed string, including in the preheader and alt text
     map is updated
   - state from before this change (no `graphics` key) → no NEW, no crash
 - Coverage gate stays at 90%.
+
+---
+
+## 12. Change 3: layout B, compact header, severe-weather flag
+
+Decisions (2026-11-06): layout **B** (no cards, full-width images), **compact header**,
+⚠️ in the subject at **SPC Slight (2/5) or higher, or any severe/winter watch or warning**,
+**email when the risk goes up**, and a soft **keyword note** in the body.
+
+Visual reference: `docs/layout_mockup.py`. `no_cards()` is layout B and `header(severe)` is the
+compact header and banner. Match it.
+
+### 12.1 Layout B + compact header (`render.py`)
+
+- The page background becomes **white `#ffffff`**. Cards and card shadows go away.
+- **Header:** one navy bar, `border-radius:12px`, `3px solid` amber bottom border, padding
+  `11px 14px`, inset 8 px from the sides. Left: `NWS {OFFICE_NAME} · GRAPHICAST` (amber,
+  11 px, letter-spacing .12em). Right: `{Ddd Mon D} · {h:MM AM}` (12 px, `#c9d4e3`). Remove the
+  "Forecast update" title and the graphic count.
+- **Each graphic:** a text block with 10 px side padding (title 18 px/700 navy, NEW badge,
+  `● Valid until`, description). Then the image at **full email width** (`padding:0`, no
+  radius, `display:block;width:100%`). Then the `View on weather.gov →` link row with a
+  `1px #e4eaee` bottom border, then a 14 px spacer.
+- Keep: dark mode (page `#0f1318`, divider `#26303c`; text tokens as in §11.1), preheader, alt
+  fallback, footer.
+
+### 12.2 `graphicast/severity.py` (new)
+
+```python
+SPC_URL = "https://www.spc.noaa.gov/products/outlook/day{day}otlk_cat.lyr.geojson"  # day 1..3
+ALERTS_URL = "https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
+LEVELS = {"MRGL": (1, "Marginal"), "SLGT": (2, "Slight"), "ENH": (3, "Enhanced"),
+          "MDT": (4, "Moderate"), "HIGH": (5, "High")}       # TSTM and others are ignored
+FLAG_LEVEL = 2
+
+@dataclass(frozen=True)
+class Outlook:  day: int; level: int; name: str; valid: datetime   # VALID_ISO, UTC
+@dataclass(frozen=True)
+class Alert:    event: str; headline: str
+@dataclass(frozen=True)
+class Severity:
+    outlooks: tuple[Outlook, ...]   # only days with level >= 1, sorted by day
+    alerts: tuple[Alert, ...]
+    mentions: tuple[str, ...]       # canonical keyword labels, de-duplicated, in order found
+    ok: bool                        # False if any official source failed (see 12.4)
+    max_level -> int                # property: 0 if no outlooks
+    flagged -> bool                 # property: max_level >= FLAG_LEVEL or bool(alerts)
+```
+
+- **Point in polygon:** `point_in_geometry(lon, lat, geometry) -> bool` for GeoJSON `Polygon`
+  and `MultiPolygon`. Use even-odd ray casting. The first ring is the outer boundary, later
+  rings are holes. Coordinates are `[lon, lat]`. Pure stdlib.
+- `parse_spc(text, day, lat, lon) -> Outlook | None` returns the **highest** level whose
+  geometry contains the point, or None.
+- **Alerts:** `parse_alerts(text) -> tuple[Alert, ...]` keeps features whose
+  `properties.event` ends in `Watch` or `Warning` **and** contains one of: `Tornado`,
+  `Severe Thunderstorm`, `Flash Flood`, `Blizzard`, `Winter Storm`, `Ice Storm`,
+  `Extreme Cold`, `Extreme Heat`, `Excessive Heat`, `High Wind`, `Hurricane`,
+  `Tropical Storm`, `Dust Storm`. De-duplicate by event name. The api.weather.gov request must
+  send the existing User-Agent (`http.get_bytes` already does).
+- **Keywords:** `find_mentions(graphics) -> tuple[str, ...]` scans titles and descriptions.
+  Split them into sentences on `[.!?]` and newlines. **Skip any sentence that matches the
+  negation regex** `\b(no|not|unlikely|without|none)\b|n't\b` (case-insensitive). Patterns →
+  labels:
+  `tornado(es)?` → tornadoes; `(large|very large|giant) hail` → large hail;
+  `(damaging|destructive) winds?` → damaging winds; `severe (storms?|thunderstorms?|weather)` →
+  severe storms; `blizzard` → blizzard; `ice storm|freezing rain|icing` → ice;
+  `heavy snow|winter storm` → heavy snow; `flash flood(ing)?` → flash flooding.
+- `assess(graphics, lat, lon, get) -> Severity` fetches days 1–3 and the alerts. **Each
+  failure is logged as a warning and never raises.** Any failure sets `ok=False`. Mentions are
+  computed from the graphics, which are already fetched.
+
+### 12.3 Config
+
+`GRAPHICAST_LAT` (default `35.2226`) and `GRAPHICAST_LON` (default `-97.4395`) are Norman.
+`GRAPHICAST_SEVERITY` set to `off` disables §12 entirely: no fetches, no flag. Add them to the
+README table.
+
+### 12.4 When to email, and state
+
+Per office, the state gains `"severity": {"max_level": int, "alerts": [sorted event names]}`.
+
+- A run sends if **the fingerprint changed** (as today), **or** `--force`, **or** a **severity
+  rise**:
+  - a rise means a saved baseline exists **and** `ok` is True **and** either
+    (`max_level >= FLAG_LEVEL` and `max_level > saved.max_level`) or an alert event is present
+    that isn't in `saved.alerts`.
+  - **No saved baseline** (first run, or state from before this change) → no rise. Just record
+    the baseline.
+  - Marginal (level 1) never triggers an email on its own.
+- Save `severity` on every run where `ok` is True, including no-send runs, so a drop followed
+  by a rise triggers again. If `ok` is False, keep the previous saved value.
+- Severity is **not** part of the fingerprint, and the fingerprint and NEW logic stay
+  unchanged.
+- If there are no active graphics but there's a severity rise, still send nothing (there are
+  no images to show). Log it.
+- `outcome` logs the reason: `sent ... (reason=graphics changed|severity rose|forced)`.
+
+### 12.5 Subject, banner, preheader, plain text
+
+- **Subject:** if `flagged`, prepend `⚠️ ` (U+26A0 U+FE0F + space). The `[TEST]` prefix stays
+  outermost: `[TEST] ⚠️ NWS OUN Graphicast — …`.
+- **Banner** (under the header, as in `header(severe)` in the mockup). One line per item:
+  - Outlook lines: `{Name} Risk ({level}/5) of severe storms, {day label}`. The day label is
+    `today` if the outlook's `valid` date (local tz) is today, else the weekday name
+    (`Saturday`). Then a smaller line: `Storm Prediction Center Day {n} outlook covers
+    {OFFICE_NAME}.`
+  - Alert lines: `{event}` in bold, then the headline.
+  - Mentions line: `Graphics mention: tornadoes, large hail`.
+- **Style:** if `flagged`, use the warning style (bg `#fff4e5`, border `#f3c27a`, title colour
+  `#b42318`, ⚠️ icon). If only Marginal and/or mentions, use an info style (bg `#f3f6f9`, border
+  `#dce3ea`, text `#3b4654`, no ⚠️, title "Heads up"). With nothing to show, there's no banner
+  and the header keeps its amber border.
+- **Preheader:** if `flagged`, start with the first banner line, then the titles as today.
+- **Plain text:** the banner lines at the top, prefixed `!! ` when flagged.
+
+### 12.6 Tests (coverage gate 90%)
+
+- **Geometry:**
+  - inside/outside a square
+  - a point inside a hole → outside
+  - a MultiPolygon with the point in its second polygon
+  - a point near an edge
+- **SPC:**
+  - The real fixture `tests/fixtures/spc_day1_20261106.geojson` parses and returns None for a
+    point in the Atlantic. Also assert the result for Norman's default point, whatever the real
+    fixture yields; compute it when writing the test.
+  - A synthetic GeoJSON with nested `MRGL`/`SLGT`/`ENH` polygons around a point → ENH (3).
+  - `TSTM` only → None.
+- **Alerts:** a synthetic `FeatureCollection` with `Tornado Watch`, `Wind Advisory` and
+  `Winter Storm Warning` → keeps the watch and the warning. Duplicates are de-duplicated.
+- **Mentions:** each must be its own test case.
+  - "Tornadoes are not expected." → ()
+  - "No severe weather is anticipated." → ()
+  - "A few tornadoes are possible Saturday evening." → ("tornadoes",)
+  - "Large hail and damaging winds are the main threats." → ("large hail", "damaging winds")
+  - "Severe storms possible; tornadoes unlikely." → ("severe storms",). The negation sits in
+    the same sentence, so expect `()`; write the test to the actual rule and note it in the
+    docstring.
+  - "Heavy snow and blizzard conditions." → ("heavy snow", "blizzard")
+- **assess:** all sources succeed; one SPC day fails → `ok=False` and the others are still
+  used; alerts fail → `ok=False`; never raises.
+- **CLI:**
+  - Slight with no baseline → no send, baseline saved.
+  - baseline 1 → 2 with unchanged graphics → sends with reason "severity rose", ⚠️ in the
+    subject.
+  - 2 → 2 → no send.
+  - 3 → 1 → no send, and 1 is saved.
+  - 1 → 2 again → sends.
+  - Marginal 0 → 1 → no send.
+  - A new Tornado Watch → sends.
+  - Severity fetch failures → the run still succeeds and the previous severity is kept.
+  - `GRAPHICAST_SEVERITY=off` → no severity URLs fetched.
+  - `[TEST]` + ⚠️ ordering.
+- **Render:**
+  - white page
+  - no card borders
+  - full-width image (`padding:0`)
+  - the compact header has no "Forecast update"
+  - warning banner vs info banner vs no banner
+  - "today" vs weekday label
+  - banner text escaped
+- **Live:** extend `tests/test_live.py` to call `assess` against the real APIs and assert it
+  returns a `Severity` (any values).

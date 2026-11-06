@@ -133,6 +133,19 @@ hidden preheader lists the graphic titles, with NEW ones first, so the inbox pre
 If a hosted image has expired, a short caption shows instead of a broken image. When there is
 severe weather to report, a banner joins the bottom of the header (see below).
 
+**Subject.** The subject can carry a short lead phrase between the optional warning sign and
+"NWS OUN Graphicast" that says why to open it, e.g. `⚠️ Enhanced Risk today · NWS OUN Graphicast
+— Fri Nov 6, 6:00 PM`. When flagged, the lead is the first active alert event (with ` +N` for
+more alerts), else the highest outlook ("Enhanced Risk today", "Slight Risk Saturday"). When not
+flagged but graphics are NEW, it is "1 new graphic" / "3 new graphics". Otherwise there is no lead.
+
+**Note line.** One quiet line of small grey text sits just under the header and banner, above the
+weather widget (plain text: the same line after the banner lines). It is one of: why an email
+was sent because the risk rose ("Sent outside the usual schedule: severe risk rose from Marginal
+to Enhanced (3/5)." or "...: new Tornado Warning." on a watch run; "Severe risk rose since the
+last check: ..." when a slot run sends for that reason), or a soft "risk lowered" note (see
+below). If both would apply, only the rise note is shown.
+
 **Weather widget.** Under the header (and banner) sits a compact blue card with the current
 conditions for `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default) from api.weather.gov: the
 temperature and a short description with a feels-like value, today's high and low, the next six
@@ -190,6 +203,13 @@ logged, the run carries on, and the previous baseline is kept. Severity is not p
 change fingerprint, and a rise with no active graphics sends nothing (there is nothing to show).
 Watch runs (every 15 minutes between slots) use this same rule, so a rise emails at any
 hour. The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
+
+**Risk lowered.** The baseline above moves on every run, so a drop is silent. Separately, each
+successful send records the severity of that email as `sent_severity` in the state file (never on
+a `--dry-run`). When an email is rendered and the assessment is ok, a note is added if the max
+level is below the one in `sent_severity` ("Severe risk has dropped to Marginal since the last
+email.") or alerts from that email are no longer active ("No longer in effect: Tornado Watch.").
+It never causes a send by itself, and state without `sent_severity` gets no note.
 
 ## Data sources
 

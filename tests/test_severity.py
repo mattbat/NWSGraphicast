@@ -10,15 +10,18 @@ import pytest
 from graphicast.model import Graphic
 from graphicast.severity import (
     ALERTS_URL,
+    LEVEL_NAMES,
     SPC_URL,
     Alert,
     Outlook,
     Severity,
     assess,
     find_mentions,
+    lowered_note,
     parse_alerts,
     parse_spc,
     point_in_geometry,
+    rise_note,
     severity_rose,
     snapshot,
 )
@@ -300,3 +303,70 @@ def test_alert_url_default_empty_and_snapshot_unchanged():
     assert Alert("A", "h").url == ""
     sev = Severity(alerts=(Alert("A", "h", "https://x"),))
     assert snapshot(sev) == {"max_level": 0, "alerts": ["A"]}
+
+
+# --- Notes: rise and lowered ---------------------------------------------------------------
+
+
+def _sev(level=0, alerts=(), ok=True):
+    outlooks = (Outlook(1, level, LEVEL_NAMES.get(level, ""), datetime(2026, 11, 7, tzinfo=UTC)),)
+    return Severity(outlooks if level else (), tuple(Alert(a, "") for a in alerts), (), ok)
+
+
+def test_rise_note_level_watch_and_slot():
+    base = {"max_level": 1, "alerts": []}
+    assert rise_note(_sev(3), base, off_schedule=True) == (
+        "Sent outside the usual schedule: severe risk rose from Marginal to Enhanced (3/5)."
+    )
+    assert rise_note(_sev(3), base, off_schedule=False) == (
+        "Severe risk rose since the last check: from Marginal to Enhanced (3/5)."
+    )
+    assert "from no severe risk to Slight (2/5)" in rise_note(
+        _sev(2), {"max_level": 0, "alerts": []}, off_schedule=True
+    )
+
+
+def test_rise_note_alerts_and_combined():
+    saved = {"max_level": 3, "alerts": ["Tornado Watch"]}
+    sev = _sev(3, ["Tornado Watch", "Tornado Warning"])
+    assert rise_note(sev, saved, off_schedule=True) == (
+        "Sent outside the usual schedule: new Tornado Warning."
+    )
+    assert rise_note(sev, saved, off_schedule=False) == (
+        "Severe risk rose since the last check: new Tornado Warning."
+    )
+    both = rise_note(_sev(4, ["Tornado Warning"]), saved, off_schedule=True)
+    assert both == (
+        "Sent outside the usual schedule: severe risk rose from Enhanced to Moderate (4/5); "
+        "new Tornado Warning."
+    )
+
+
+def test_rise_note_none_cases():
+    saved = {"max_level": 2, "alerts": []}
+    assert rise_note(_sev(2), saved, off_schedule=True) is None
+    assert rise_note(_sev(3), None, off_schedule=True) is None
+    assert rise_note(_sev(3, ok=False), saved, off_schedule=True) is None
+    assert rise_note(_sev(1), {"max_level": 0, "alerts": []}, off_schedule=True) is None
+
+
+def test_lowered_note():
+    sent = {"max_level": 3, "alerts": ["Tornado Watch"]}
+    assert lowered_note(_sev(1, ["Tornado Watch"]), sent) == (
+        "Severe risk has dropped to Marginal since the last email."
+    )
+    assert lowered_note(_sev(3), sent) == "No longer in effect: Tornado Watch."
+    assert lowered_note(_sev(0), sent) == (
+        "Severe risk has dropped below Marginal since the last email. "
+        "No longer in effect: Tornado Watch."
+    )
+    assert lowered_note(_sev(3, ["Tornado Watch"]), sent) is None
+    assert lowered_note(_sev(4, ["Tornado Watch"]), sent) is None
+
+
+def test_lowered_note_missing_or_bad_state_or_failed_assessment():
+    sent = {"max_level": 3, "alerts": []}
+    assert lowered_note(_sev(0), None) is None
+    assert lowered_note(_sev(0), {"max_level": "x", "alerts": []}) is None
+    assert lowered_note(_sev(0), {"max_level": 3}) is None
+    assert lowered_note(_sev(0, ok=False), sent) is None

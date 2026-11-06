@@ -471,7 +471,7 @@ def test_severity_sequence_rises_and_drops(tmp_path, fake_get, mesonet_text, nws
     assert go("MRGL") == 1  # Marginal 0 -> 1 never emails, but is recorded
     assert saved_severity(state)["max_level"] == 1
     assert go("SLGT") == 2  # 1 -> 2 rises
-    assert "⚠️ NWS OUN Graphicast" in send.msgs[-1][0]["Subject"]
+    assert "⚠️ Slight Risk Saturday · NWS OUN Graphicast" in send.msgs[-1][0]["Subject"]
     assert go("SLGT") == 2  # 2 -> 2 steady
     assert go("ENH") == 3  # 2 -> 3 rises
     assert go("MRGL") == 3  # 3 -> 1 drops, no send
@@ -554,7 +554,9 @@ def test_prefix_stays_outermost_with_warning(
     state, send = tmp_path / "state.json", Sender()
     env = {**ENV, "GRAPHICAST_SUBJECT_PREFIX": "[TEST]"}
     sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env=env)
-    assert send.msgs[0][0]["Subject"].startswith("[TEST] ⚠️ NWS OUN Graphicast")
+    assert send.msgs[0][0]["Subject"].startswith(
+        "[TEST] ⚠️ Enhanced Risk Saturday · NWS OUN Graphicast"
+    )
 
 
 def test_severity_rise_with_no_active_graphics_sends_nothing(
@@ -816,3 +818,114 @@ def test_dry_run_writes_widget_with_data_uris(
     )  # fmt: skip
     html = (out / "email.html").read_text()
     assert "Feels like 38°" in html and "data:image/png;base64," in html
+
+
+# --- Notes under the header: rise reason and "risk lowered" --------------------------------
+
+
+def plain_of(msg):
+    return msg.get_body(preferencelist=("plain",)).get_content()
+
+
+def sent_severity(state):
+    return json.loads(state.read_text())["offices"]["oun"].get("sent_severity")
+
+
+def test_watch_rise_note_says_outside_schedule(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=1)
+    watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH")
+    msg = send.msgs[0][0]
+    line = "Sent outside the usual schedule: severe risk rose from Marginal to Enhanced (3/5)."
+    assert line in html_of(msg) and line in plain_of(msg)
+    assert sent_severity(state) == {"max_level": 3, "alerts": []}
+
+
+def test_watch_new_alert_note(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0)
+    watch(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+        alerts=["Tornado Warning"],
+    )  # fmt: skip
+    msg = send.msgs[0][0]
+    assert "Sent outside the usual schedule: new Tornado Warning." in plain_of(msg)
+    assert msg["Subject"].startswith("⚠️ Tornado Warning · NWS OUN")
+
+
+def test_slot_run_rise_note_wording(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW)
+    first = send.msgs[0][0]
+    assert "Severe risk" not in plain_of(first)  # no note when nothing rose or dropped
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH")
+    assert len(send.msgs) == 2  # unchanged graphics, so the rise is the reason
+    assert (
+        "Severe risk rose since the last check: from no severe risk to Enhanced (3/5)."
+        in plain_of(send.msgs[1][0])
+    )
+    assert "outside the usual schedule" not in plain_of(send.msgs[1][0])
+
+
+def test_graphics_change_with_rise_has_no_rise_note(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0)  # fingerprint "old" differs, so reason=graphics changed
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH")
+    assert len(send.msgs) == 1
+    assert "rose" not in plain_of(send.msgs[0][0])
+
+
+def test_lowered_note_on_next_send_and_never_sends_alone(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH")
+    assert len(send.msgs) == 1 and sent_severity(state)["max_level"] == 3
+    # The risk drops: no email, baseline follows, sent_severity is untouched.
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="MRGL")
+    assert len(send.msgs) == 1
+    assert saved_severity(state)["max_level"] == 1 and sent_severity(state)["max_level"] == 3
+    # A later (forced) email carries the soft note, then records the new sent snapshot.
+    sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="MRGL",
+        argv=("--force",),
+    )  # fmt: skip
+    msg = send.msgs[1][0]
+    line = "Severe risk has dropped to Marginal since the last email."
+    assert line in html_of(msg) and line in plain_of(msg)
+    assert sent_severity(state)["max_level"] == 1
+
+
+def test_alert_no_longer_in_effect_note(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+        alerts=["Tornado Watch"],
+    )  # fmt: skip
+    sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+        argv=("--force",),
+    )  # fmt: skip
+    assert "No longer in effect: Tornado Watch." in plain_of(send.msgs[1][0])
+
+
+def test_no_sent_severity_means_no_lowered_note_and_dry_run_does_not_save_it(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=3)  # old state without sent_severity
+    sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="MRGL",
+        argv=("--force",),
+    )  # fmt: skip
+    assert "dropped" not in plain_of(send.msgs[0][0])
+    state2 = tmp_path / "state2.json"
+    sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state2, send, FIXTURE_NOW, label="ENH",
+        argv=("--dry-run", "--out", str(tmp_path / "out")),
+    )  # fmt: skip
+    assert not state2.exists()

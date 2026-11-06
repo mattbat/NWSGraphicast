@@ -12,6 +12,7 @@ from graphicast.render import (
     image_type,
     render_email,
     render_html_preview,
+    subject_lead,
 )
 from graphicast.severity import Alert, Outlook, Severity
 
@@ -339,7 +340,9 @@ def test_warning_banner_for_flagged_outlook():
     assert "Graphics mention: tornadoes, large hail" in html
     assert "border-bottom:3px solid #f5a524" not in html
     assert "border-radius:12px 12px 0 0" in html
-    assert msg["Subject"].startswith("\u26a0\ufe0f NWS OUN Graphicast")
+    assert msg["Subject"].startswith(
+        "\u26a0\ufe0f Enhanced Risk Saturday \u00b7 NWS OUN Graphicast"
+    )
 
 
 def test_warning_banner_for_alert_only():
@@ -494,3 +497,55 @@ def test_footer_links_html_and_plain():
     assert f"Forecast discussion: {AFD}" in plain
     assert "Radar: https://radar.weather.gov/station/KFDR/standard" in plain
     assert preview_of([g()], {}).count(RADAR) == 1
+
+
+# --- Subject lead and note line ------------------------------------------------------------
+
+
+def test_subject_lead_phrase_after_flag():
+    got = format_subject("oun", NOW, "America/Chicago", flagged=True, lead="Tornado Warning")
+    assert got == "⚠️ Tornado Warning · NWS OUN Graphicast — Fri Nov 6, 5:14 AM"
+    got = format_subject("oun", NOW, "America/Chicago", lead="1 new graphic")
+    assert got == "1 new graphic · NWS OUN Graphicast — Fri Nov 6, 5:14 AM"
+
+
+def test_subject_lead_precedence():
+    tz = "America/Chicago"
+    enh = outlook(3, "Enhanced", 1, NOW)
+    slgt = outlook(2, "Slight", 2)
+    one = (Alert("Tornado Warning", "h"),)
+    two = (*one, Alert("Flash Flood Watch", "h"))
+    assert subject_lead(None, 0, NOW, tz) is None
+    assert subject_lead(Severity(), 0, NOW, tz) is None
+    assert subject_lead(Severity(), 1, NOW, tz) == "1 new graphic"
+    assert subject_lead(Severity(), 3, NOW, tz) == "3 new graphics"
+    assert subject_lead(Severity((slgt, enh), one), 2, NOW, tz) == "Tornado Warning"
+    assert subject_lead(Severity((slgt, enh), two), 0, NOW, tz) == "Tornado Warning +1"
+    assert subject_lead(Severity((slgt, enh)), 2, NOW, tz) == "Enhanced Risk today"
+    assert subject_lead(Severity((slgt,)), 0, NOW, tz) == "Slight Risk Saturday"
+    # Marginal alone is not flagged, so new graphics lead instead
+    assert subject_lead(Severity((outlook(1, "Marginal"),)), 2, NOW, tz) == "2 new graphics"
+
+
+def test_render_email_subject_uses_new_count_and_severity():
+    msg = render([g(1), g(2, url="https://x/2.png")], {}, new_numbers=frozenset({2}))
+    assert msg["Subject"].startswith("1 new graphic · NWS OUN Graphicast")
+    sev = Severity(alerts=(Alert("Tornado Warning", "h"),))
+    msg = render([g()], {}, severity=sev)
+    assert msg["Subject"].startswith("⚠️ Tornado Warning · NWS OUN")
+
+
+def test_note_in_html_and_plain_escaped():
+    note = "Sent outside the usual schedule: new <b>Tornado</b> Warning."
+    msg = render([g()], {}, note=note)
+    html = html_of(msg)
+    assert "new &lt;b&gt;Tornado&lt;/b&gt; Warning." in html
+    assert "<b>Tornado</b>" not in html
+    assert 'class="c-meta" style="padding:0 10px 10px;font-size:12px' in html
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert note in plain
+    assert "new &lt;b&gt;Tornado&lt;/b&gt; Warning." in preview_of([g()], {}, note=note)
+
+
+def test_no_note_means_no_note_row():
+    assert "padding:0 10px 10px;font-size:12px" not in html_of(render([g()], {}))

@@ -153,18 +153,25 @@ Phase 3 — extras (as chosen)
 - [ ] PWA manifest/service worker + Web Push
 - [ ] NWS alerts integration
 
-## 7. Open questions
+## 7. Decisions (2026-11-06)
 
-1. Who gets emails today — just you, or several people in the Google Sheet? Which offices/zips?
-   (I can't see the sheet; I'd need the list to migrate it.)
-2. Keep sending from the same Gmail account (App Password), or open to an email API
-   (Resend/Mailgun/SES) for better deliverability?
-3. Is the repo public or private? (Decides whether recipients go in a config file or a secret.)
-4. Cadence: keep "check 3×/day, email only on change", or check hourly and email on change
-   (with quiet hours)? Or a fixed digest regardless of change?
-5. Do you still care about Large vs Small images? (NWS currently serves the same file for both.)
-6. Phone platform (iOS/Android)? Is installing the ntfy app acceptable, or do you specifically
-   want a PWA with no app?
-7. Want a history/archive of past graphicasts?
-8. Happy to stay in Python?
-9. Anything else the Pi does for this (logs, other scripts) that should come along?
+| Topic | Decision |
+|---|---|
+| Recipients | Just the owner. One office: **OUN (Norman)**. No signup and no zip lookup; office and recipient set in config/secrets |
+| Sending | **Gmail SMTP + App Password** (free, same as today). Secrets: `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_TO` |
+| Repo | **Public**: nothing personal in committed files; email address lives in a secret |
+| Cadence | **3×/day**, email only when the active graphics changed. Exact times TBD; must handle Central time DST since cron is UTC |
+| Image size | One size only (`FullImage`; NWS serves the same file for both today). Drop the option |
+| Phone | iPhone. ntfy is an optional extra, not a requirement |
+| Archive | No |
+| Language | Python |
+| Other Pi duties | None. Turn off the Pi cron once the Actions version is verified |
+
+Dropped from scope: Google Sheets, gspread/oauth2client, zip→office lookup, multi-subscriber
+fan-out, history archive, multi-user Web Push.
+
+## 8. Remaining open questions
+
+1. Exact send times (Central)? Suggestion: ~6:30am, 12:30pm, 5:30pm.
+2. Email only on change (current behaviour), or always send at those times?
+3. Want ntfy push in phase 1, later, or never?

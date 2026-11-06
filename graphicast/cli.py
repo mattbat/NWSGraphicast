@@ -4,10 +4,12 @@ One run does the following:
 1. Schedule gate: skip unless this is the first run in a 6/12/18 local send slot.
 2. Fetch the office's graphics (Mesonet, falling back to the NWS XML feed).
 3. Keep the graphics active now, download their images, and fingerprint the set.
-4. If the fingerprint changed (or with --force), convert the images to JPEG, publish them
-   (hosted mode) or embed them (inline mode), and send the email.
-5. Save state: the processed slot and, after a send, the new fingerprint and per-graphic
-   hashes (used to tag changed graphics NEW in the next email).
+4. Assess severe weather for the configured point (SPC outlooks, active alerts, keywords in
+   the graphics) unless GRAPHICAST_SEVERITY=off. A failed source never fails the run.
+5. If the fingerprint changed, a severity rise was detected, or with --force, convert the
+   images to JPEG, publish them (hosted mode) or embed them (inline mode), and send the email.
+6. Save state: the processed slot, after a send the new fingerprint and per-graphic hashes
+   (used to tag changed graphics NEW), and the severity baseline whenever it was assessed ok.
 
 Exit codes: 0 success (including skip and no change), 1 fetch/publish/send failure,
 2 configuration error.
@@ -31,6 +33,7 @@ from graphicast.notify.email import send_email
 from graphicast.publish import publish_images
 from graphicast.render import render_email, render_html_preview
 from graphicast.schedule import should_run
+from graphicast.severity import Severity, assess, severity_rose, snapshot
 from graphicast.sources import AllSourcesFailed, fetch_graphics
 from graphicast.state import load_state, save_state
 
@@ -81,6 +84,7 @@ def _write_dry_run(
     converted: dict[str, tuple[bytes, str]],
     now: datetime,
     new_numbers: frozenset[int],
+    severity: Severity | None = None,
 ) -> None:
     """Write the email (.eml), a self-contained HTML preview and the converted images."""
     jpegs = {url: data for url, (data, _ext) in converted.items()}
@@ -94,6 +98,8 @@ def _write_dry_run(
         sender=cfg.smtp_user or DRY_RUN_SENDER,
         to=cfg.email_to or DRY_RUN_RECIPIENT,
         new_numbers=new_numbers,
+        severity=severity,
+        place_name=cfg.place_name,
     )
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +116,8 @@ def _write_dry_run(
         now=now,
         tz=cfg.tz,
         new_numbers=new_numbers,
+        severity=severity,
+        place_name=cfg.place_name,
     )
     (out / "email.html").write_text(preview, encoding="utf-8")
     log.info("wrote %s, %s and %s", out / "email.eml", out / "email.html", images_dir)
@@ -166,10 +174,31 @@ def main(
     previous = saved.get("fingerprint")
     new_numbers = _new_numbers(saved.get("graphics"), hashes)
 
+    # Severe-weather assessment (never raises; disabled by GRAPHICAST_SEVERITY=off).
+    severity = assess(active, cfg.lat, cfg.lon, get) if cfg.severity else None
+    rose = severity is not None and severity_rose(severity, saved.get("severity"))
+    if severity is not None:
+        log.info(
+            "severity: max_level=%d alerts=%d mentions=%s ok=%s%s",
+            severity.max_level,
+            len(severity.alerts),
+            ", ".join(severity.mentions) or "none",
+            severity.ok,
+            " (rose)" if rose else "",
+        )
+
     if not active:
         send_it, outcome = False, "no active graphics"
-    elif args.force or fp != previous:
-        send_it, outcome = True, f"sent {len(active)} graphics (source={source})"
+        if rose:
+            log.info("severity rose but there are no active graphics to send")
+    elif args.force:
+        send_it, outcome = True, f"sent {len(active)} graphics (source={source}, reason=forced)"
+    elif fp != previous:
+        send_it = True
+        outcome = f"sent {len(active)} graphics (source={source}, reason=graphics changed)"
+    elif rose:
+        send_it = True
+        outcome = f"sent {len(active)} graphics (source={source}, reason=severity rose)"
     else:
         send_it, outcome = False, "no change"
 
@@ -177,7 +206,7 @@ def main(
 
     if args.dry_run:
         if active:
-            _write_dry_run(args.out, cfg, active, converted, now, new_numbers)
+            _write_dry_run(args.out, cfg, active, converted, now, new_numbers, severity)
             outcome = f"{len(active)} graphics (source={source})"
         log.info("result: dry-run, %s", outcome)
         return 0
@@ -215,6 +244,8 @@ def main(
             hosted_urls=hosted_urls,
             new_numbers=new_numbers,
             image_days=cfg.image_days if hosted_urls is not None else None,
+            severity=severity,
+            place_name=cfg.place_name,
         )
         if cfg.subject_prefix:
             msg.replace_header("Subject", f"{cfg.subject_prefix} {msg['Subject']}")
@@ -225,14 +256,17 @@ def main(
             return 1
 
     # 5. Save state. An empty set is recorded too, so the next new graphic counts as a change.
+    # The severity baseline is saved on every run where all sources answered, so a drop
+    # followed by a rise triggers again; after a failed assessment the old baseline is kept.
     if slot_iso is not None:
         state["last_slot"] = slot_iso
+    entry = dict(saved)
     if send_it or (not active and fp != previous):
-        state.setdefault("offices", {})[cfg.office] = {
-            "fingerprint": fp,
-            "sent_at": now.astimezone(UTC).isoformat(),
-            "graphics": hashes,
-        }
+        entry.update(fingerprint=fp, sent_at=now.astimezone(UTC).isoformat(), graphics=hashes)
+    if severity is not None and severity.ok:
+        entry["severity"] = snapshot(severity)
+    if entry != saved:
+        state.setdefault("offices", {})[cfg.office] = entry
     save_state(state_path, state)
     log.info("result: %s", outcome)
     return 0

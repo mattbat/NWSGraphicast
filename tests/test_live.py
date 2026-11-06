@@ -21,3 +21,11 @@ def test_live_feed_parses(module) -> None:
     graphics = module.parse(text)
     for g in graphics:
         assert g.image_url.startswith("https://")
+
+
+def test_live_assess_returns_severity() -> None:
+    from graphicast.config import DEFAULT_LAT, DEFAULT_LON
+    from graphicast.severity import Severity, assess
+
+    sev = assess([], DEFAULT_LAT, DEFAULT_LON, http.get_bytes)
+    assert isinstance(sev, Severity)

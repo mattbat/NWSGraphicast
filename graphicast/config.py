@@ -13,6 +13,9 @@ DEFAULT_OFFICE = "oun"
 DEFAULT_STATE_PATH = "state/state.json"
 DEFAULT_IMAGE_DAYS = 7
 DEFAULT_OFFICE_NAME = "Norman"
+DEFAULT_LAT = 35.6528  # Edmond, OK
+DEFAULT_LON = -97.4781
+DEFAULT_PLACE_NAME = "Edmond"
 
 
 class ConfigError(Exception):
@@ -33,6 +36,10 @@ class Config:
     image_days: int = DEFAULT_IMAGE_DAYS
     office_name: str = DEFAULT_OFFICE_NAME
     subject_prefix: str = ""  # e.g. "[TEST]" for test sends
+    lat: float = DEFAULT_LAT
+    lon: float = DEFAULT_LON
+    place_name: str = DEFAULT_PLACE_NAME  # named in the SPC banner line
+    severity: bool = True  # False when GRAPHICAST_SEVERITY=off
 
     @property
     def hosted(self) -> bool:
@@ -69,6 +76,19 @@ def _parse_days(raw: str | None) -> int:
     return days
 
 
+def _parse_coord(env: Mapping[str, str], key: str, default: float, limit: float) -> float:
+    raw = _opt(env, key)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ConfigError(f"{key} must be a number: {raw!r}") from None
+    if not -limit <= value <= limit:
+        raise ConfigError(f"{key} must be between {-limit:g} and {limit:g}: {raw!r}")
+    return value
+
+
 def load_config(env: Mapping[str, str] = os.environ) -> Config:
     smtp_user = _opt(env, "SMTP_USER")
     images_dir = _opt(env, "GRAPHICAST_IMAGES_DIR")
@@ -85,6 +105,10 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         image_days=_parse_days(_opt(env, "GRAPHICAST_IMAGE_DAYS")),
         office_name=_opt(env, "GRAPHICAST_OFFICE_NAME") or DEFAULT_OFFICE_NAME,
         subject_prefix=_opt(env, "GRAPHICAST_SUBJECT_PREFIX") or "",
+        lat=_parse_coord(env, "GRAPHICAST_LAT", DEFAULT_LAT, 90),
+        lon=_parse_coord(env, "GRAPHICAST_LON", DEFAULT_LON, 180),
+        place_name=_opt(env, "GRAPHICAST_PLACE_NAME") or DEFAULT_PLACE_NAME,
+        severity=(_opt(env, "GRAPHICAST_SEVERITY") or "").lower() != "off",
     )
 
 

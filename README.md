@@ -98,17 +98,55 @@ configuration.
 | `GRAPHICAST_IMAGES_DIR` | none | Checkout of the `images` branch; with the base URL, enables hosting |
 | `GRAPHICAST_IMAGES_BASE_URL` | none | Public URL prefix of that branch |
 | `GRAPHICAST_IMAGE_DAYS` | `7` | Days before hosted image folders are deleted (at least 1) |
+| `GRAPHICAST_LAT` | `35.6528` | Latitude of the point checked for severe weather (Edmond, OK) |
+| `GRAPHICAST_LON` | `-97.4781` | Longitude of that point |
+| `GRAPHICAST_PLACE_NAME` | `Edmond` | Place named in the banner ("outlook covers Edmond") |
+| `GRAPHICAST_SEVERITY` | on | Set to `off` to disable the severe-weather flag entirely (no fetches, no flag, no banner) |
 
 ## Email design
 
-The email is a navy header with an amber accent and one card per graphic: title, a "Valid until"
-time in your local time zone, the description, the image, and a "View on weather.gov" link. A
-graphic that is new or changed since the last send carries a **NEW** tag (the first run, or a run
-with no saved per-graphic state, tags nothing). Dark mode is supported through
-`prefers-color-scheme` and the page background matches common mail apps. A hidden preheader lists
-the graphic titles, with NEW ones first, so the inbox preview is useful. If a hosted image has
-expired, a short caption shows instead of a broken image. The design reference is
+The email is laid out without cards: a compact navy header bar (office name on the left, date and
+time on the right, with an amber bottom edge), then for each graphic a text block with the title,
+a "Valid until" time in your local time zone and the description, followed by the image at the
+full width of the email and a "View on weather.gov" link. The page is white (near-black in dark
+mode, through `prefers-color-scheme`). A graphic that is new or changed since the last send
+carries a **NEW** tag (the first run, or a run with no saved per-graphic state, tags nothing). A
+hidden preheader lists the graphic titles, with NEW ones first, so the inbox preview is useful.
+If a hosted image has expired, a short caption shows instead of a broken image. When there is
+severe weather to report, a banner joins the bottom of the header (see below). The design
+references are [`docs/layout_mockup.py`](docs/layout_mockup.py) and
 [`docs/email_mockup.py`](docs/email_mockup.py).
+
+## Severe-weather flag
+
+Each run checks the point set by `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default; it lies in the Norman office's area) against:
+
+- the Storm Prediction Center categorical convective outlooks for days 1 to 3 (the highest
+  category whose area contains the point: Marginal 1, Slight 2, Enhanced 3, Moderate 4, High 5;
+  general thunderstorms are ignored);
+- active alerts from api.weather.gov for that point: any Tornado, Severe Thunderstorm, Flash
+  Flood, Blizzard, Winter Storm, Ice Storm, Extreme Cold/Heat, Excessive Heat, High Wind,
+  Hurricane, Tropical Storm or Dust Storm **Watch** or **Warning** (advisories are ignored);
+- keywords in the graphics' own titles and descriptions: tornadoes, large hail, damaging winds,
+  severe storms, blizzard, ice, heavy snow and flash flooding. This is a soft note only. Text is
+  split into sentences and **any sentence containing a negation (no, not, unlikely, without,
+  none, n't) is skipped**, so "Tornadoes are not expected." is ignored. The same rule skips the
+  whole sentence in "Severe storms possible; tornadoes unlikely."
+
+**The flag.** The subject gets a leading warning sign, and a warning banner appears under the
+header, when the outlook is **Slight (2/5) or higher** or there is any of the alerts above. A
+Marginal outlook or keyword mentions alone only add a quieter "Heads up" banner, with no warning
+sign in the subject.
+
+**When it emails.** Besides the usual "graphics changed" trigger, a run sends when **the risk
+rises** versus the baseline saved in the state file: the outlook reaches Slight or higher and is
+above the saved level, or an alert event appears that was not in the saved set. Marginal alone
+never triggers an email. The first run (or state from before this feature) only records a
+baseline. The baseline is updated on every run where all sources answered, including runs that
+send nothing, so a drop followed by a rise emails again. If a source fails, the failure is
+logged, the run carries on, and the previous baseline is kept. Severity is not part of the
+change fingerprint, and a rise with no active graphics sends nothing (there is nothing to show).
+The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
 
 ## Data sources
 
@@ -127,6 +165,7 @@ red run in Actions and GitHub sends its usual workflow failure email.
 | `graphicast/model.py` | `Graphic` dataclass and the "active now" filter |
 | `graphicast/fingerprint.py` | Change detection (whole set and per graphic, for NEW tags) over titles, descriptions and image bytes |
 | `graphicast/state.py` | `state.json` load/save (kept on the `state` branch) |
+| `graphicast/severity.py` | Severe-weather flag: SPC outlook and alert parsing, point-in-polygon, keyword mentions |
 | `graphicast/images.py` | PNG → JPEG conversion (Pillow) |
 | `graphicast/publish.py` | Commit images to the `images` branch, prune old folders, push |
 | `graphicast/render.py` | Email HTML and plain text |

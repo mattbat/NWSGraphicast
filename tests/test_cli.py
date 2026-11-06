@@ -9,6 +9,7 @@ from PIL import Image
 
 from graphicast import cli
 from graphicast.fingerprint import EMPTY_FINGERPRINT
+from graphicast.severity import ALERTS_URL, SPC_URL
 from graphicast.sources import mesonet, nws_xml
 
 
@@ -399,3 +400,186 @@ def test_no_subject_prefix_by_default(tmp_path, fake_get, mesonet_text, nws_text
     send = Sender()
     run(["--ignore-schedule"], state, get, send, FIXTURE_NOW)
     assert send.msgs[0][0]["Subject"].startswith("NWS OUN Graphicast")
+
+
+# --- Change 3: severe-weather flag ---------------------------------------------------------
+
+LAT, LON = 35.6528, -97.4781
+
+
+def _box(pad):
+    ring = [
+        [LON - pad, LAT - pad],
+        [LON + pad, LAT - pad],
+        [LON + pad, LAT + pad],
+        [LON - pad, LAT + pad],
+        [LON - pad, LAT - pad],
+    ]
+    return {"type": "Polygon", "coordinates": [ring]}
+
+
+def spc_text(label):
+    """A day outlook with one `label` area around Norman (or no features for None)."""
+    feats = []
+    if label:
+        props = {"LABEL": label, "VALID_ISO": "2026-11-07T12:00:00+00:00"}
+        feats.append({"type": "Feature", "geometry": _box(2), "properties": props})
+    return json.dumps({"type": "FeatureCollection", "features": feats}).encode()
+
+
+def severity_map(label=None, alerts=()):
+    """Day 1 outlook = `label`; days 2-3 empty; alerts = list of event names."""
+    feats = [{"properties": {"event": e, "headline": f"{e} headline"}} for e in alerts]
+    return {
+        SPC_URL.format(day=1): spc_text(label),
+        SPC_URL.format(day=2): spc_text(None),
+        SPC_URL.format(day=3): spc_text(None),
+        ALERTS_URL.format(lat=LAT, lon=LON): json.dumps({"features": feats}).encode(),
+    }
+
+
+def sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, now, label=None, alerts=(),
+            env=ENV, argv=("--ignore-schedule",), **over):  # fmt: skip
+    get, _, _ = setup(
+        tmp_path, fake_get, mesonet_text, nws_text, **{**severity_map(label, alerts), **over}
+    )
+    return run(list(argv), state, get, send, now, env=env), get
+
+
+def saved_severity(state):
+    return json.loads(state.read_text())["offices"]["oun"].get("severity")
+
+
+def test_severity_sequence_rises_and_drops(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+
+    def go(label=None, alerts=()):
+        rc, _ = sev_run(
+            tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label, alerts
+        )
+        assert rc == 0
+        return len(send.msgs)
+
+    assert go(None) == 1  # first run: graphics changed; baseline 0 saved
+    assert saved_severity(state) == {"max_level": 0, "alerts": []}
+    assert go("MRGL") == 1  # Marginal 0 -> 1 never emails, but is recorded
+    assert saved_severity(state)["max_level"] == 1
+    assert go("SLGT") == 2  # 1 -> 2 rises
+    assert "⚠️ NWS OUN Graphicast" in send.msgs[-1][0]["Subject"]
+    assert go("SLGT") == 2  # 2 -> 2 steady
+    assert go("ENH") == 3  # 2 -> 3 rises
+    assert go("MRGL") == 3  # 3 -> 1 drops, no send
+    assert saved_severity(state)["max_level"] == 1
+    assert go("SLGT") == 4  # 1 -> 2 again rises
+
+
+def test_slight_without_baseline_records_but_does_not_send(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW)
+    data = json.loads(state.read_text())
+    del data["offices"]["oun"]["severity"]  # state from before this change
+    state.write_text(json.dumps(data))
+    rc, _ = sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "SLGT")
+    assert rc == 0 and len(send.msgs) == 1
+    assert saved_severity(state) == {"max_level": 2, "alerts": []}
+
+
+def test_rise_logs_reason(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW, caplog):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW)
+    caplog.set_level("INFO", logger="graphicast")
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH")
+    assert "reason=severity rose" in caplog.text
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH",
+            argv=("--force",))  # fmt: skip
+    assert "reason=forced" in caplog.text
+    first = tmp_path / "other.json"
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, first, send, FIXTURE_NOW)
+    assert "reason=graphics changed" in caplog.text
+
+
+def test_new_tornado_watch_sends(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW)
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+            alerts=["Tornado Watch"])  # fmt: skip
+    assert len(send.msgs) == 2
+    msg = send.msgs[-1][0]
+    assert msg["Subject"].startswith("⚠️ ")
+    assert "Tornado Watch headline" in html_of(msg)
+    assert saved_severity(state)["alerts"] == ["Tornado Watch"]
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+            alerts=["Tornado Watch"])  # fmt: skip
+    assert len(send.msgs) == 2  # same watch again: no new email
+
+
+def test_severity_failure_keeps_previous_and_run_succeeds(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "SLGT")
+    err = urllib.error.URLError("down")
+    broken = {u: err for u in severity_map()}
+    rc, _ = sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, **broken)
+    assert rc == 0 and len(send.msgs) == 1
+    assert saved_severity(state)["max_level"] == 2
+
+
+def test_severity_off_fetches_no_severity_urls(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    env = {**ENV, "GRAPHICAST_SEVERITY": "off"}
+    rc, get = sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env=env
+    )
+    assert rc == 0 and len(send.msgs) == 1
+    assert not [u for u in get.urls if "spc.noaa.gov" in u or "alerts" in u]
+    assert "severity" not in json.loads(state.read_text())["offices"]["oun"]
+    assert 'bn-warn"' not in html_of(send.msgs[0][0])
+    assert not send.msgs[0][0]["Subject"].startswith("⚠")
+
+
+def test_prefix_stays_outermost_with_warning(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    env = {**ENV, "GRAPHICAST_SUBJECT_PREFIX": "[TEST]"}
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env=env)
+    assert send.msgs[0][0]["Subject"].startswith("[TEST] ⚠️ NWS OUN Graphicast")
+
+
+def test_severity_rise_with_no_active_graphics_sends_nothing(
+    tmp_path, fake_get, mesonet_text, nws_text, caplog
+):
+    late = datetime(2030, 1, 1, tzinfo=UTC)
+    state, send = tmp_path / "state.json", Sender()
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late)
+    caplog.set_level("INFO", logger="graphicast")
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, "ENH")
+    assert send.msgs == [] and "no active graphics to send" in caplog.text
+    assert saved_severity(state)["max_level"] == 3
+
+
+def test_dry_run_includes_banner_and_saves_nothing(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    out = tmp_path / "out"
+    argv = ("--ignore-schedule", "--dry-run", "--out", str(out))
+    rc, _ = sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env={},
+        argv=argv,
+    )  # fmt: skip
+    assert rc == 0 and not state.exists()
+    assert "Enhanced Risk (3/5) of severe storms" in (out / "email.html").read_text()
+
+
+def test_banner_uses_place_name(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    state, send = tmp_path / "state.json", Sender()
+    env = {**ENV, "GRAPHICAST_PLACE_NAME": "Guthrie"}
+    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env=env)
+    html = html_of(send.msgs[0][0])
+    assert "outlook covers Guthrie." in html and "NWS NORMAN" in html

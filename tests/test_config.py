@@ -75,3 +75,27 @@ def test_office_name():
 def test_subject_prefix():
     assert load_config({}).subject_prefix == ""
     assert load_config({"GRAPHICAST_SUBJECT_PREFIX": " [TEST] "}).subject_prefix == "[TEST]"
+
+
+def test_severity_defaults_and_overrides():
+    cfg = load_config({})
+    assert (cfg.lat, cfg.lon, cfg.severity) == (35.6528, -97.4781, True)
+    cfg = load_config(
+        {"GRAPHICAST_LAT": "36.15", "GRAPHICAST_LON": "-95.99", "GRAPHICAST_SEVERITY": "OFF"}
+    )
+    assert (cfg.lat, cfg.lon, cfg.severity) == (36.15, -95.99, False)
+    assert load_config({"GRAPHICAST_SEVERITY": "on"}).severity is True
+
+
+@pytest.mark.parametrize(
+    ("key", "raw"),
+    [("GRAPHICAST_LAT", "north"), ("GRAPHICAST_LAT", "91"), ("GRAPHICAST_LON", "-181")],
+)
+def test_bad_coordinates(key, raw):
+    with pytest.raises(ConfigError, match=key):
+        load_config({key: raw})
+
+
+def test_place_name_default_and_override():
+    assert load_config({}).place_name == "Edmond"
+    assert load_config({"GRAPHICAST_PLACE_NAME": "Tulsa"}).place_name == "Tulsa"

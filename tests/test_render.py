@@ -12,6 +12,7 @@ from graphicast.render import (
     render_email,
     render_html_preview,
 )
+from graphicast.severity import Alert, Outlook, Severity
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x"
 NOW = datetime(2026, 11, 6, 11, 14, tzinfo=UTC)
@@ -200,17 +201,18 @@ def graphic_ending(number, end, title="Title"):
 
 def test_design_tokens_present():
     html = html_of(render([g()], {}))
-    assert "background:#f7fafb" in html
-    assert "#0b1f3a" in html and "linear-gradient(135deg" in html
-    assert "border-bottom:4px solid #f5a524" in html
-    assert "NWS NORMAN &middot; GRAPHICAST" in html and "Forecast update" in html
-    assert "Friday, November 6 \u00b7 5:14 AM" in html
+    assert "background:#ffffff" in html and "#f7fafb" not in html
+    assert "border-bottom:3px solid #f5a524" in html and "border-radius:12px" in html
+    assert "padding:11px 14px" in html
+    assert "NWS NORMAN &middot; GRAPHICAST" in html
+    assert "Fri Nov 6 \u00b7 5:14 AM" in html
+    assert "Forecast update" not in html and "linear-gradient" not in html
 
 
 def test_dark_mode_and_color_scheme_metas():
     html = html_of(render([g()], {}))
     assert "@media (prefers-color-scheme: dark)" in html
-    for token in ("#0f1318", "#182029", "#26303c", "#e8eef6", "#c3cfdd", "#8b9bb0", "#8ab4ff"):
+    for token in ("#0f1318", "#26303c", "#e8eef6", "#c3cfdd", "#8b9bb0", "#8ab4ff"):
         assert token in html
     assert "#3a2a0a" in html and "#fcd34d" in html
     assert '<meta name="color-scheme" content="light dark">' in html
@@ -224,7 +226,7 @@ def test_preheader_orders_new_first():
     assert "New: Gamma \u00b7 Alpha \u00b7 Beta" in html
     assert "display:none;max-height:0;overflow:hidden;opacity:0" in html
     assert html.count("&#8203;&nbsp;") >= 60
-    assert html.index("New: Gamma") < html.index("Forecast update")
+    assert html.index("New: Gamma") < html.index("GRAPHICAST")
 
 
 def test_new_badge_only_on_new_graphics():
@@ -247,10 +249,11 @@ def test_valid_until_cst_and_cdt():
     assert "Valid until Sat 5:14 AM" in plain
 
 
-def test_graphic_count_singular_plural():
-    assert "&middot;&nbsp; 1 graphic<" in html_of(render([g(1)], {}))
+def test_header_has_no_graphic_count():
     three = [g(1), g(2, url="https://x/2.png"), g(3, url="https://x/3.png")]
-    assert "&middot;&nbsp; 3 graphics<" in html_of(render(three, {}))
+    for graphics in ([g(1)], three):
+        html = html_of(render(graphics, {}))
+        assert "1 graphic" not in html and "3 graphics" not in html
 
 
 def test_alt_fallback_text():
@@ -295,3 +298,115 @@ def test_office_name_escaped_and_uppercased():
     html = html_of(msg)
     assert "NWS TULSA &lt;OK&gt; &middot; GRAPHICAST" in html
     assert 'href="https://www.weather.gov/tul"' in html
+
+
+# --- Change 3: layout B, compact header, severity banner -----------------------------------
+
+
+def outlook(level=3, name="Enhanced", day=2, valid=None):
+    valid = valid or datetime(2026, 11, 7, 12, 0, tzinfo=UTC)  # Saturday local
+    return Outlook(day, level, name, valid)
+
+
+def test_layout_b_has_no_cards_and_full_width_image():
+    html = html_of(render([g()], {}))
+    assert "box-shadow" not in html and "bg-card" not in html
+    assert "border:1px solid #e4eaee" not in html
+    assert 'style="padding:0"><img' in html
+    assert "display:block;width:100%;height:auto;border:0" in html
+    assert "border-radius:10px" not in html
+    assert "padding:8px 10px 22px;border-bottom:1px solid #e4eaee" in html
+    assert "padding:4px 10px 10px" in html and "font-size:18px;font-weight:700" in html
+    assert 'class="bd-line"' in html
+
+
+def test_no_severity_means_no_banner_and_amber_header_border():
+    html = html_of(render([g()], {}, severity=Severity()))
+    assert 'class="bn-' not in html
+    assert "border-bottom:3px solid #f5a524" in html
+    assert render([g()], {}, severity=Severity())["Subject"].startswith("NWS OUN")
+
+
+def test_warning_banner_for_flagged_outlook():
+    sev = Severity(outlooks=(outlook(),), mentions=("tornadoes", "large hail"))
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    assert 'class="bn-warn"' in html and "background:#fff4e5" in html
+    assert "border:1px solid #f3c27a" in html and "#b42318" in html
+    assert "\u26a0\ufe0f Enhanced Risk (3/5) of severe storms, Saturday" in html
+    assert "Storm Prediction Center Day 2 outlook covers Edmond." in html
+    assert "Graphics mention: tornadoes, large hail" in html
+    assert "border-bottom:3px solid #f5a524" not in html
+    assert "border-radius:12px 12px 0 0" in html
+    assert msg["Subject"].startswith("\u26a0\ufe0f NWS OUN Graphicast")
+
+
+def test_warning_banner_for_alert_only():
+    sev = Severity(alerts=(Alert("Tornado Watch", "Tornado Watch until 9 PM"),))
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    assert '<b style="color:#b42318">\u26a0\ufe0f Tornado Watch</b>' in html
+    assert "Tornado Watch until 9 PM" in html
+    assert msg["Subject"].startswith("\u26a0\ufe0f ")
+
+
+def test_info_banner_for_marginal_and_mentions():
+    sev = Severity(outlooks=(outlook(1, "Marginal", 1),), mentions=("large hail",))
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    assert 'class="bn-info"' in html and "background:#f3f6f9" in html
+    assert "border:1px solid #dce3ea" in html
+    assert "Heads up" in html and "\u26a0" not in html and 'bn-warn"' not in html
+    assert "Marginal Risk (1/5) of severe storms," in html
+    assert not msg["Subject"].startswith("\u26a0")
+    assert "!! " not in msg.get_body(preferencelist=("plain",)).get_content()
+
+
+def test_info_banner_for_mentions_only():
+    html = html_of(render([g()], {}, severity=Severity(mentions=("blizzard",))))
+    assert "Heads up" in html and "Graphics mention: blizzard" in html
+
+
+def test_banner_day_label_today_vs_weekday():
+    today = outlook(2, "Slight", 1, datetime(2026, 11, 6, 13, 0, tzinfo=UTC))
+    sev = Severity(outlooks=(today, outlook()))
+    html = html_of(render([g()], {}, severity=sev))
+    assert "Slight Risk (2/5) of severe storms, today" in html
+    assert "Enhanced Risk (3/5) of severe storms, Saturday" in html
+
+
+def test_banner_text_escaped():
+    sev = Severity(
+        outlooks=(outlook(),),
+        alerts=(Alert("Tornado <b>Watch</b>", "<script>x</script>"),),
+        mentions=("<i>",),
+    )
+    for html in (html_of(render([g()], {}, severity=sev)), preview_of([g()], {}, severity=sev)):
+        assert "<script>" not in html and "<i>" not in html
+        assert "Tornado &lt;b&gt;Watch&lt;/b&gt;" in html
+        assert "&lt;script&gt;x&lt;/script&gt;" in html
+
+
+def test_flagged_preheader_and_plain_text():
+    sev = Severity(outlooks=(outlook(),), alerts=(Alert("Tornado Watch", "Until 9 PM"),))
+    msg = render([g(title="Alpha")], {}, severity=sev)
+    html = html_of(msg)
+    pre = html[html.index("opacity:0") :]
+    assert pre.index("Enhanced Risk (3/5)") < pre.index("Alpha")
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    top = plain.split("\n\n")[0].splitlines()
+    assert top[0] == "!! Enhanced Risk (3/5) of severe storms, Saturday"
+    assert "!! Storm Prediction Center Day 2 outlook covers Edmond." in top
+    assert "!! Tornado Watch" in top and "!! Until 9 PM" in top
+    assert "Alpha" in plain.split("\n\n")[1]
+
+
+def test_banner_dark_mode_classes_present():
+    html = html_of(render([g()], {}, severity=Severity(outlooks=(outlook(),))))
+    assert ".bn-warn{" in html and ".bn-info{" in html and ".bd-line{" in html
+
+
+def test_preview_includes_banner_and_flag_state():
+    sev = Severity(outlooks=(outlook(),))
+    assert 'class="bn-warn"' in preview_of([g()], {}, severity=sev)
+    assert "bn-" not in preview_of([g()], {}).replace(".bn-", "")

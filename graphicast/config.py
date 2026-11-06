@@ -12,6 +12,7 @@ from graphicast.schedule import DEFAULT_HOURS, DEFAULT_TZ
 DEFAULT_OFFICE = "oun"
 DEFAULT_STATE_PATH = "state/state.json"
 DEFAULT_IMAGE_DAYS = 7
+DEFAULT_OFFICE_NAME = "Norman"
 
 
 class ConfigError(Exception):
@@ -30,6 +31,7 @@ class Config:
     images_dir: Path | None = None
     images_base_url: str | None = None
     image_days: int = DEFAULT_IMAGE_DAYS
+    office_name: str = DEFAULT_OFFICE_NAME
 
     @property
     def hosted(self) -> bool:
@@ -80,6 +82,7 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         images_dir=Path(images_dir) if images_dir else None,
         images_base_url=_opt(env, "GRAPHICAST_IMAGES_BASE_URL"),
         image_days=_parse_days(_opt(env, "GRAPHICAST_IMAGE_DAYS")),
+        office_name=_opt(env, "GRAPHICAST_OFFICE_NAME") or DEFAULT_OFFICE_NAME,
     )
 
 

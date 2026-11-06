@@ -68,6 +68,7 @@ configuration.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `GRAPHICAST_OFFICE` | `oun` | NWS forecast office |
+| `GRAPHICAST_OFFICE_NAME` | `Norman` | Office name shown in the email header and footer |
 | `GRAPHICAST_TZ` | `America/Chicago` | Time zone for send slots |
 | `GRAPHICAST_HOURS` | `6,12,18` | Local send hours |
 | `GRAPHICAST_STATE` | `state/state.json` | State file path |
@@ -77,6 +78,17 @@ configuration.
 | `GRAPHICAST_IMAGES_DIR` | none | Checkout of the `images` branch; with the base URL, enables hosting |
 | `GRAPHICAST_IMAGES_BASE_URL` | none | Public URL prefix of that branch |
 | `GRAPHICAST_IMAGE_DAYS` | `7` | Days before hosted image folders are deleted (at least 1) |
+
+## Email design
+
+The email is a navy header with an amber accent and one card per graphic: title, a "Valid until"
+time in your local time zone, the description, the image, and a "View on weather.gov" link. A
+graphic that is new or changed since the last send carries a **NEW** tag (the first run, or a run
+with no saved per-graphic state, tags nothing). Dark mode is supported through
+`prefers-color-scheme` and the page background matches common mail apps. A hidden preheader lists
+the graphic titles, with NEW ones first, so the inbox preview is useful. If a hosted image has
+expired, a short caption shows instead of a broken image. The design reference is
+[`docs/email_mockup.py`](docs/email_mockup.py).
 
 ## Data sources
 
@@ -93,7 +105,7 @@ red run in Actions and GitHub sends its usual workflow failure email.
 | `graphicast/schedule.py` | 6/12/18 local send-slot gate, DST-aware |
 | `graphicast/sources/` | Mesonet JSON and NWS XML parsers, plus the fallback logic |
 | `graphicast/model.py` | `Graphic` dataclass and the "active now" filter |
-| `graphicast/fingerprint.py` | Change detection over titles, descriptions and image bytes |
+| `graphicast/fingerprint.py` | Change detection (whole set and per graphic, for NEW tags) over titles, descriptions and image bytes |
 | `graphicast/state.py` | `state.json` load/save (kept on the `state` branch) |
 | `graphicast/images.py` | PNG → JPEG conversion (Pillow) |
 | `graphicast/publish.py` | Commit images to the `images` branch, prune old folders, push |

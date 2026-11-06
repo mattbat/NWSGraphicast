@@ -6,7 +6,8 @@ One run does the following:
 3. Keep the graphics active now, download their images, and fingerprint the set.
 4. If the fingerprint changed (or with --force), convert the images to JPEG, publish them
    (hosted mode) or embed them (inline mode), and send the email.
-5. Save state: the processed slot and, after a send, the new fingerprint.
+5. Save state: the processed slot and, after a send, the new fingerprint and per-graphic
+   hashes (used to tag changed graphics NEW in the next email).
 
 Exit codes: 0 success (including skip and no change), 1 fetch/publish/send failure,
 2 configuration error.
@@ -23,7 +24,7 @@ from pathlib import Path
 
 from graphicast import http
 from graphicast.config import Config, ConfigError, load_config, require_smtp
-from graphicast.fingerprint import EMPTY_FINGERPRINT, fingerprint
+from graphicast.fingerprint import EMPTY_FINGERPRINT, fingerprint, graphic_hashes
 from graphicast.images import convert_all
 from graphicast.model import Graphic, active_graphics
 from graphicast.notify.email import send_email
@@ -65,23 +66,34 @@ def _download_images(graphics: list[Graphic], get: Callable[..., bytes]) -> dict
     return images
 
 
+def _new_numbers(previous: Mapping[str, str] | None, hashes: Mapping[str, str]) -> frozenset[int]:
+    """Graphic numbers whose hash differs from (or is missing in) the previous send.
+    With no previous map (first run, or state from before NEW tags) nothing is NEW."""
+    if previous is None:
+        return frozenset()
+    return frozenset(int(n) for n, h in hashes.items() if previous.get(n) != h)
+
+
 def _write_dry_run(
     out: Path,
     cfg: Config,
     active: list[Graphic],
     converted: dict[str, tuple[bytes, str]],
     now: datetime,
+    new_numbers: frozenset[int],
 ) -> None:
     """Write the email (.eml), a self-contained HTML preview and the converted images."""
     jpegs = {url: data for url, (data, _ext) in converted.items()}
     msg = render_email(
         office=cfg.office,
+        office_name=cfg.office_name,
         graphics=active,
         images=jpegs,
         now=now,
         tz=cfg.tz,
         sender=cfg.smtp_user or DRY_RUN_SENDER,
         to=cfg.email_to or DRY_RUN_RECIPIENT,
+        new_numbers=new_numbers,
     )
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +102,15 @@ def _write_dry_run(
             data, ext = converted[g.image_url]
             (images_dir / f"{g.number}.{ext}").write_bytes(data)
     (out / "email.eml").write_bytes(msg.as_bytes())
-    preview = render_html_preview(office=cfg.office, graphics=active, images=jpegs)
+    preview = render_html_preview(
+        office=cfg.office,
+        office_name=cfg.office_name,
+        graphics=active,
+        images=jpegs,
+        now=now,
+        tz=cfg.tz,
+        new_numbers=new_numbers,
+    )
     (out / "email.html").write_text(preview, encoding="utf-8")
     log.info("wrote %s, %s and %s", out / "email.eml", out / "email.html", images_dir)
 
@@ -141,7 +161,10 @@ def main(
     active = active_graphics(graphics, now)
     images = _download_images(active, get)
     fp = fingerprint(active, images) if active else EMPTY_FINGERPRINT
-    previous = state.get("offices", {}).get(cfg.office, {}).get("fingerprint")
+    hashes = graphic_hashes(active, images)
+    saved = state.get("offices", {}).get(cfg.office, {})
+    previous = saved.get("fingerprint")
+    new_numbers = _new_numbers(saved.get("graphics"), hashes)
 
     if not active:
         send_it, outcome = False, "no active graphics"
@@ -154,7 +177,7 @@ def main(
 
     if args.dry_run:
         if active:
-            _write_dry_run(args.out, cfg, active, converted, now)
+            _write_dry_run(args.out, cfg, active, converted, now, new_numbers)
             outcome = f"{len(active)} graphics (source={source})"
         log.info("result: dry-run, %s", outcome)
         return 0
@@ -182,6 +205,7 @@ def main(
                 return 1
         msg = render_email(
             office=cfg.office,
+            office_name=cfg.office_name,
             graphics=active,
             images={url: data for url, (data, _ext) in converted.items()},
             now=now,
@@ -189,6 +213,8 @@ def main(
             sender=cfg.smtp_user,
             to=cfg.email_to,
             hosted_urls=hosted_urls,
+            new_numbers=new_numbers,
+            image_days=cfg.image_days if hosted_urls is not None else None,
         )
         try:
             send(msg, user=cfg.smtp_user, password=cfg.smtp_password)
@@ -203,6 +229,7 @@ def main(
         state.setdefault("offices", {})[cfg.office] = {
             "fingerprint": fp,
             "sent_at": now.astimezone(UTC).isoformat(),
+            "graphics": hashes,
         }
     save_state(state_path, state)
     log.info("result: %s", outcome)

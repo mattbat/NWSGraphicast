@@ -2,15 +2,16 @@
 
 Render: python docs/email_mockup.py (writes p_*.html into the current directory).
 """
+
 import sys
 from datetime import UTC, datetime
 from html import escape as e
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, "/home/user/NWSGraphicast")
-from graphicast.model import active_graphics
-from graphicast.sources import fetch_graphics
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from graphicast.model import active_graphics  # noqa: E402
+from graphicast.sources import fetch_graphics  # noqa: E402
 
 TZ = ZoneInfo("America/Chicago")
 now = datetime.now(UTC)
@@ -18,28 +19,40 @@ _, gs = fetch_graphics("oun")
 gs = active_graphics(gs, now)
 NEW = {gs[1].number}
 local = now.astimezone(TZ)
+
+
 def t(dt):
-    d = dt.astimezone(TZ); return f"{d:%a} {int(d.strftime('%I'))}:{d:%M %p}"
+    d = dt.astimezone(TZ)
+    return f"{d:%a} {int(d.strftime('%I'))}:{d:%M %p}"
+
+
 stamp = f"{local:%A, %B} {local.day} · {int(local.strftime('%I'))}:{local:%M %p}"
 FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
 BGS = {
-  "1_matched": ("#f7fafb", "#e4eaee"),   # sampled from the user's mail app
-  "2_gray":    ("#f2f4f6", "#e1e5ea"),
-  "3_sage":    ("#f1f5f2", "#dfe7e1"),
-  "4_mist":    ("#eff4f9", "#dce5ef"),
+    "1_matched": ("#f7fafb", "#e4eaee"),  # sampled from the user's mail app
+    "2_gray": ("#f2f4f6", "#e1e5ea"),
+    "3_sage": ("#f1f5f2", "#dfe7e1"),
+    "4_mist": ("#eff4f9", "#dce5ef"),
 }
 NAVY, NAVY2, AMBER = "#0b1f3a", "#14325c", "#f5a524"
 SHADOW = "0 1px 2px rgba(16,24,40,.05),0 6px 16px rgba(16,24,40,.06)"
 
+
 def email(bg, line):
     cards = ""
     for g in gs:
-        badge = ('<span style="display:inline-block;background:#fff4dc;color:#8a4b00;font-size:10px;font-weight:700;'
-                 'letter-spacing:.08em;padding:3px 8px;border-radius:999px;margin-left:8px;vertical-align:3px">NEW</span>'
-                 if g.number in NEW else "")
-        desc = (f'<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#3b4654">{e(g.description)}</p>'
-                if g.description else "")
+        badge = (
+            '<span style="display:inline-block;background:#fff4dc;color:#8a4b00;font-size:10px;font-weight:700;'
+            'letter-spacing:.08em;padding:3px 8px;border-radius:999px;margin-left:8px;vertical-align:3px">NEW</span>'
+            if g.number in NEW
+            else ""
+        )
+        desc = (
+            f'<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#3b4654">{e(g.description)}</p>'
+            if g.description
+            else ""
+        )
         cards += f"""<tr><td style="padding:0 0 18px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid {line};border-radius:16px;box-shadow:{SHADOW}">
 <tr><td style="padding:20px 20px 0">
@@ -67,6 +80,7 @@ def email(bg, line):
 Sent when NWS Norman updates its graphics · images expire after 7 days</td></tr>
 </table></td></tr></table>"""
 
+
 def app_frame(inner):
     """Mimic the user's mail app: #f7fafb chrome, subject, white rounded sheet."""
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -76,6 +90,7 @@ def app_frame(inner):
 <div style="padding:0 20px 12px;display:flex;justify-content:space-between"><div><div style="font-size:16px;font-weight:600">Batchelderbot</div>
 <div style="font-size:14px;color:#3b82f6">To: Mrmacman</div></div><div style="color:#888;font-size:14px">7:09 AM</div></div>
 {inner}</div></body></html>"""
+
 
 for name, (bg, line) in BGS.items():
     Path(f"p_{name}.html").write_text(app_frame(email(bg, line)))

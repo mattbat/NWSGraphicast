@@ -304,3 +304,81 @@ def test_inline_mode_when_only_one_hosting_var(
     env = {**ENV, "GRAPHICAST_IMAGES_DIR": "imgdir"}
     assert hosted_run(state, get, rec, FIXTURE_NOW, env=env) == 0
     assert rec.calls == ["send"] and n_images(rec.msg) == 3
+
+
+def html_of(msg):
+    return msg.get_body(preferencelist=("html",)).get_content()
+
+
+def test_first_run_has_no_new_tags_and_saves_graphic_hashes(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    send = Sender()
+    run(["--ignore-schedule"], state, get, send, FIXTURE_NOW)
+    assert ">NEW</span>" not in html_of(send.msgs[0][0])
+    saved = json.loads(state.read_text())["offices"]["oun"]
+    assert len(saved["graphics"]) == 3
+    assert all(len(h) == 64 for h in saved["graphics"].values())
+
+
+def test_changed_image_tags_only_that_graphic_new(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    send = Sender()
+    run(["--ignore-schedule"], state, get, send, FIXTURE_NOW)
+    first = json.loads(state.read_text())["offices"]["oun"]["graphics"]
+    url = image_urls(mesonet_text)[0]
+    get2, _, _ = setup(tmp_path, fake_get, mesonet_text, nws_text, **{url: make_png((1, 2, 3))})
+    assert run(["--ignore-schedule"], state, get2, send, FIXTURE_NOW) == 0
+    assert html_of(send.msgs[1][0]).count(">NEW</span>") == 1
+    second = json.loads(state.read_text())["offices"]["oun"]["graphics"]
+    assert set(second) == set(first)
+    assert len([n for n in first if first[n] != second[n]]) == 1
+
+
+def test_wrong_saved_hash_tags_new_in_dry_run(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, out = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    run(["--ignore-schedule"], state, get, Sender(), FIXTURE_NOW)
+    data = json.loads(state.read_text())
+    first = sorted(data["offices"]["oun"]["graphics"])[0]
+    data["offices"]["oun"]["graphics"][first] = "0" * 64
+    state.write_text(json.dumps(data))
+    argv = ["--ignore-schedule", "--dry-run", "--out", str(out)]
+    assert run(argv, state, get, Sender(), FIXTURE_NOW, env={}) == 0
+    assert (out / "email.html").read_text().count(">NEW</span>") == 1
+
+
+def test_old_state_without_graphics_key_has_no_new(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    state.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "last_slot": None,
+                "offices": {"oun": {"fingerprint": "old", "sent_at": "x"}},
+            }
+        )
+    )
+    send = Sender()
+    assert run(["--ignore-schedule"], state, get, send, FIXTURE_NOW) == 0
+    assert ">NEW</span>" not in html_of(send.msgs[0][0])
+    assert len(json.loads(state.read_text())["offices"]["oun"]["graphics"]) == 3
+
+
+def test_hosted_footer_mentions_expiry_and_inline_does_not(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    rec = Recorder()
+    hosted_run(state, get, rec, FIXTURE_NOW)
+    assert "images expire after 7 days" in html_of(rec.msg)
+    get2, state2, _ = setup(tmp_path / "b", fake_get, mesonet_text, nws_text)
+    send = Sender()
+    run(["--ignore-schedule"], state2, get2, send, FIXTURE_NOW)
+    assert "images expire" not in html_of(send.msgs[0][0])

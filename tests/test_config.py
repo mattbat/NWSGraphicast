@@ -65,3 +65,8 @@ def test_image_hosting_defaults_and_hosted_property():
 def test_bad_image_days(raw):
     with pytest.raises(ConfigError, match="GRAPHICAST_IMAGE_DAYS"):
         load_config({"GRAPHICAST_IMAGE_DAYS": raw})
+
+
+def test_office_name():
+    assert load_config({}).office_name == "Norman"
+    assert load_config({"GRAPHICAST_OFFICE_NAME": " Tulsa "}).office_name == "Tulsa"

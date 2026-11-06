@@ -39,7 +39,7 @@ The earlier Raspberry Pi / Google Sheets version is preserved in git history (co
 ## Testing a change by email (before merging)
 
 `.github/workflows/test-email.yml` sends one real email from any branch except `master`. Push
-a commit whose message contains `[send-test-email]`. Once the workflow is on `master`, you
+a commit whose message **starts with** `[send-test-email]`. Once the workflow is on `master`, you
 can also use Actions → test-email → Run workflow and pick a branch. The email's subject starts
 with `[TEST]`. The run uses a throwaway state file, so the real schedule's change detection is
 untouched. It publishes images to the `images` branch like a normal send. It needs the three

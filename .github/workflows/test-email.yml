@@ -1,6 +1,6 @@
 name: test-email
 # Sends one real email from any non-master branch, so changes can be checked in a real
-# inbox before merging. Trigger it by pushing a commit whose message contains
+# inbox before merging. Trigger it by pushing a commit whose message STARTS with
 # "[send-test-email]", or, once this file is on master, with "Run workflow" on any branch.
 # Safe to run anytime: it uses a throwaway state file (the real schedule is unaffected)
 # and prefixes the subject with "[TEST]". Images are published to the real images branch
@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   send:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[send-test-email]')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[send-test-email]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

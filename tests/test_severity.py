@@ -9,7 +9,6 @@ import pytest
 
 from graphicast.model import Graphic
 from graphicast.severity import (
-    ALERTS_FALLBACK_URL,
     ALERTS_URL,
     SPC_URL,
     Alert,
@@ -131,8 +130,8 @@ def alerts_json(*events):
 def test_alerts_keep_watches_and_warnings_only():
     text = alerts_json("Tornado Watch", "Wind Advisory", "Winter Storm Warning")
     assert parse_alerts(text) == (
-        Alert("Tornado Watch", "Tornado Watch headline", ALERTS_FALLBACK_URL),
-        Alert("Winter Storm Warning", "Winter Storm Warning headline", ALERTS_FALLBACK_URL),
+        Alert("Tornado Watch", "Tornado Watch headline"),
+        Alert("Winter Storm Warning", "Winter Storm Warning headline"),
     )
 
 
@@ -143,7 +142,7 @@ def test_alerts_deduplicated_and_irrelevant_dropped():
 
 def test_alert_without_headline():
     text = json.dumps({"features": [{"properties": {"event": "Flash Flood Warning"}}]})
-    assert parse_alerts(text) == (Alert("Flash Flood Warning", "", ALERTS_FALLBACK_URL),)
+    assert parse_alerts(text) == (Alert("Flash Flood Warning", ""),)
 
 
 # --- mentions -------------------------------------------------------------------------------
@@ -290,14 +289,11 @@ def test_assess_official_has_no_mentions_and_with_mentions_adds_them():
     assert with_mentions(official, graphics).mentions == ("large hail",)
 
 
-def test_alert_url_from_feature_id_or_at_id():
-    api = "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.abc"
-    feats = [
-        {"id": api, "properties": {"event": "Tornado Watch", "@id": "other"}},
-        {"properties": {"event": "Flash Flood Warning", "@id": api + "2"}},
-    ]
-    alerts = parse_alerts(json.dumps({"features": feats}))
-    assert [a.url for a in alerts] == [api, api + "2"]
+def test_alert_url_is_the_point_forecast_page():
+    feats = [{"id": "https://api.weather.gov/alerts/x", "properties": {"event": "Tornado Watch"}}]
+    page = "https://forecast.weather.gov/MapClick.php?lat=35.6528&lon=-97.4781"
+    assert [a.url for a in parse_alerts(json.dumps({"features": feats}), page)] == [page]
+    assert parse_alerts(json.dumps({"features": feats}))[0].url == ""
 
 
 def test_alert_url_default_empty_and_snapshot_unchanged():

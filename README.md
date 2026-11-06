@@ -176,9 +176,8 @@ sign in the subject.
 
 **Links.** In the banner, each outlook line links to that day's SPC outlook page
 (`.../outlook/day1otlk.html`, `day2otlk`, `day3otlk`) and each alert line links to the alert:
-`Alert.url` is the alert's api.weather.gov URL (the feed's `id`), which is the only per-alert link
-the feed provides (it opens as JSON, not a formatted page), falling back to
-https://alerts.weather.gov if absent. A flagged banner ends with a Radar link (`GRAPHICAST_RADAR`).
+the forecast.weather.gov page for `GRAPHICAST_LAT` / `GRAPHICAST_LON`, which lists the active
+hazards with their full text (the feed's own per-alert links are JSON, unreadable on a phone). A flagged banner ends with a Radar link (`GRAPHICAST_RADAR`).
 Plain text puts each URL on the line after its text. The alert URL is not part of the saved state.
 
 **When it emails.** Besides the usual "graphics changed" trigger, a run sends when **the risk

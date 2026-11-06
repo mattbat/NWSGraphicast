@@ -18,7 +18,8 @@ from graphicast.model import Graphic
 log = logging.getLogger(__name__)
 
 SPC_URL = "https://www.spc.noaa.gov/products/outlook/day{day}otlk_cat.lyr.geojson"
-ALERTS_FALLBACK_URL = "https://alerts.weather.gov"
+# Human-readable forecast page for the point; it lists the active hazards with their full text.
+ALERT_PAGE_URL = "https://forecast.weather.gov/MapClick.php?lat={lat:.4f}&lon={lon:.4f}"
 ALERTS_URL = "https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
 LEVELS = {
     "MRGL": (1, "Marginal"),
@@ -139,8 +140,10 @@ def parse_spc(text: str, day: int, lat: float, lon: float) -> Outlook | None:
     return best
 
 
-def parse_alerts(text: str) -> tuple[Alert, ...]:
-    """Severe/winter/flood/heat watches and warnings, de-duplicated by event name."""
+def parse_alerts(text: str, page_url: str = "") -> tuple[Alert, ...]:
+    """Severe/winter/flood/heat watches and warnings, de-duplicated by event name. Each alert
+    links to `page_url` (the point's forecast page, which lists active hazards): the feed's own
+    per-alert URLs are api.weather.gov JSON, which is unreadable on a phone."""
     found: dict[str, Alert] = {}
     for feature in json.loads(text).get("features", []):
         props = feature.get("properties") or {}
@@ -149,11 +152,7 @@ def parse_alerts(text: str) -> tuple[Alert, ...]:
             continue
         if not any(k in event for k in ALERT_KEYWORDS):
             continue
-        # The feature id (== properties["@id"]) is the api.weather.gov alert URL. It is the only
-        # per-alert link the feed gives; it is JSON, not a rendered page, but it is stable and
-        # identifies the alert. Without it, fall back to the national alerts page.
-        url = feature.get("id") or props.get("@id") or ALERTS_FALLBACK_URL
-        found.setdefault(event, Alert(event, props.get("headline") or "", str(url)))
+        found.setdefault(event, Alert(event, props.get("headline") or "", page_url))
     return tuple(found.values())
 
 
@@ -198,7 +197,8 @@ def assess_official(lat: float, lon: float, get: Callable[..., bytes]) -> Severi
             outlooks.append(outlook)
     alerts: tuple[Alert, ...] = ()
     try:
-        alerts = parse_alerts(get(ALERTS_URL.format(lat=lat, lon=lon)).decode("utf-8"))
+        text = get(ALERTS_URL.format(lat=lat, lon=lon)).decode("utf-8")
+        alerts = parse_alerts(text, ALERT_PAGE_URL.format(lat=lat, lon=lon))
     except Exception as exc:
         log.warning("active alerts fetch failed: %s", exc)
         ok = False

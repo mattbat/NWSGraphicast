@@ -1,0 +1,160 @@
+<xml>
+  <head>
+    <product concise-name="graphicast">
+      <creation-date>2026-11-06T11:09:18.130Z</creation-date>
+    </product>
+    <source>
+      <credit></credit>
+      <production-center></production-center>
+    </source>
+  </head>
+  <graphicasts>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793962800</StartTime>
+      <EndTime>1793980800</EndTime>
+      <graphicNumber>2</graphicNumber>
+      <order>2</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Friday Morning Fog]]>
+      </title>
+      <description>
+        <![CDATA[Patchy areas of fog are possible across portions of northern and central Oklahoma near/after sunrise on Friday morning. Visibility as low as one-quarter mile will be possible, so make sure to use caution during the Friday morning commute!]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/2.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/2.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793953800</StartTime>
+      <EndTime>1794088920</EndTime>
+      <graphicNumber>4</graphicNumber>
+      <order>4</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Cool This Weekend; Warming Next Week]]>
+      </title>
+      <description>
+        <![CDATA[After two cooler days, temperatures will once again climb several degrees above normal. These warmer conditions look to continue for much of next week. ]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/4.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/4.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793860080</StartTime>
+      <EndTime>1793929680</EndTime>
+      <graphicNumber>6</graphicNumber>
+      <order>6</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Showers and Cool Thursday]]>
+      </title>
+      <description>
+        <![CDATA[Mostly cloudy with showers through the day, especially across central and northern OK. Cooler temperatures with afternoon highs in the 50s and 60s, with low to middle 70s closer to the Red River.]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/6.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/6.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793691300</StartTime>
+      <EndTime>1793691300</EndTime>
+      <graphicNumber>5</graphicNumber>
+      <order>5</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Severe Storm Risk: Monday Night]]>
+      </title>
+      <description>
+        <![CDATA[Strong to severe thunderstorms continue across southeastern Oklahoma and north Texas Monday night. Damaging winds, large hail and tornadoes are all possible during this time.]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/5.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/5.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793683140</StartTime>
+      <EndTime>1793683140</EndTime>
+      <graphicNumber>7</graphicNumber>
+      <order>7</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Severe Storm Timing ]]>
+      </title>
+      <description>
+        <![CDATA[Severe thunderstorms are expected this evening into the overnight hours.]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/7.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/7.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1793950500</StartTime>
+      <EndTime>1794088680</EndTime>
+      <graphicNumber>1</graphicNumber>
+      <order>1</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Next 7 Days]]>
+      </title>
+      <description>
+        <![CDATA[Cooler temperatures the next couple days with a warming trend expected into next week. Outside of very low rain chances on Veterans Day (Wednesday/11th), mostly dry weather is expected.]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/1.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/1.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+    <graphicast>
+      <Office>National Weather Service</Office>
+      <cwa_center_lat>0</cwa_center_lat>
+      <cwa_center_lon>0</cwa_center_lon>
+      <StartTime>1792581780</StartTime>
+      <EndTime>1792581780</EndTime>
+      <graphicNumber>3</graphicNumber>
+      <order>3</order>
+      <radar>0</radar>
+      <FrontPage>false</FrontPage>
+      <title>
+        <![CDATA[Late October into Early November Outlook]]>
+      </title>
+      <description>
+        <![CDATA[The latest Climate Prediction Centers outlook is warmer and wetter than average/normal going into the end of October and early November.    ]]>
+      </description>
+      <WebURL></WebURL>
+      <FullImage>https://www.weather.gov/images/oun/graphicast/3.png</FullImage>
+      <SmallImage>https://www.weather.gov/images/oun/graphicast/3.png</SmallImage>
+      <ImageLoop></ImageLoop>
+    </graphicast>
+  </graphicasts>
+</xml>

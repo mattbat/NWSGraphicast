@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 15 * * 1"
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q --cov=graphicast --cov-fail-under=90
+  live:
+    # Weekly / manual check that the real feeds still parse.
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: GRAPHICAST_LIVE=1 pytest -m live -q

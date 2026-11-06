@@ -1,0 +1,76 @@
+name: graphicast
+on:
+  schedule:
+    # Every 15 minutes. The script decides what each run does (graphicast/schedule.py): the
+    # first run in each 6am/12pm/6pm Central slot is a send run; every other run only checks
+    # for a severe-weather rise and emails if the risk went up.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Send even if nothing changed"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Render only; upload the email as an artifact, don't send"
+        type: boolean
+        default: false
+permissions:
+  contents: write   # push state and images branches
+  actions: write    # keepalive
+concurrency:
+  group: graphicast
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.12" }
+      - run: pip install .
+      - name: Check out state branch
+        run: |
+          git config user.name "graphicast-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin state; then
+            git worktree add state origin/state
+          else
+            git worktree add --orphan -b state state
+          fi
+      - name: Check out images branch
+        run: |
+          if git fetch origin images; then
+            git worktree add images origin/images
+          else
+            git worktree add --orphan -b images images
+          fi
+      - name: Run
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GRAPHICAST_STATE: state/state.json
+          GRAPHICAST_IMAGES_DIR: images
+          GRAPHICAST_IMAGES_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/images
+          GRAPHICAST_ASSET_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/assets/icons
+        run: |
+          args=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then args="--ignore-schedule"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then args="$args --force"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="$args --dry-run"; fi
+          python -m graphicast $args
+      - name: Save state
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          cd state
+          git add state.json 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "state: $(date -u +%FT%TZ)"
+          git push origin HEAD:state
+      - name: Upload preview
+        if: ${{ inputs.dry_run == true }}
+        uses: actions/upload-artifact@v7
+        with: { name: email-preview, path: out/ }
+      - uses: liskin/gh-workflow-keepalive@v1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email
+import re
 from datetime import UTC, datetime
 from email import policy
 
@@ -312,7 +313,7 @@ def test_layout_b_has_no_cards_and_full_width_image():
     html = html_of(render([g()], {}))
     assert "box-shadow" not in html and "bg-card" not in html
     assert "border:1px solid #e4eaee" not in html
-    assert 'style="padding:0"><img' in html
+    assert 'style="padding:0"><a href="https://x/1.png"' in html and "<img" in html
     assert "display:block;width:100%;height:auto;border:0" in html
     assert "border-radius:10px" not in html
     assert "padding:8px 10px 22px;border-bottom:1px solid #e4eaee" in html
@@ -410,3 +411,86 @@ def test_preview_includes_banner_and_flag_state():
     sev = Severity(outlooks=(outlook(),))
     assert 'class="bn-warn"' in preview_of([g()], {}, severity=sev)
     assert "bn-" not in preview_of([g()], {}).replace(".bn-", "")
+
+
+# --- links ----------------------------------------------------------------------------------
+
+SPC1 = "https://www.spc.noaa.gov/products/outlook/day1otlk.html"
+RADAR = "https://radar.weather.gov/station/KTLX/standard"
+AFD = (
+    "https://forecast.weather.gov/product.php?site=OUN&issuedby=OUN"
+    "&product=AFD&format=txt&version=1&glossary=1"
+)
+
+
+def test_graphic_image_links_to_weather_gov_when_embedded():
+    msg = render([g(url="https://x/1.png")], {"https://x/1.png": PNG})
+    html = html_of(msg)
+    assert re.search(r'<a href="https://x/1.png" style="display:block[^"]*"><img src="cid:', html)
+    assert 'href="cid:' not in html
+
+
+def test_graphic_image_links_to_hosted_jpeg():
+    hosted = {"https://x/1.png": "https://raw.example/20261106T120000Z/1.jpg"}
+    html = html_of(render([g()], {}, hosted_urls=hosted))
+    assert '<a href="https://raw.example/20261106T120000Z/1.jpg" style="display:block' in html
+    assert '<img src="https://raw.example/20261106T120000Z/1.jpg"' in html
+
+
+def test_preview_image_link_is_not_a_data_uri():
+    html = preview_of([g()], {"https://x/1.png": PNG})
+    assert '<a href="https://x/1.png" style="display:block' in html
+    assert 'href="data:' not in html
+
+
+def test_banner_outlook_and_alert_links():
+    api = "https://api.weather.gov/alerts/urn:oid:1"
+    sev = Severity(
+        outlooks=(outlook(2, "Slight", 1), outlook(1, "Marginal", 3)),
+        alerts=(Alert("Tornado Watch", "Until 9 PM", api), Alert("Flash Flood Warning", "x")),
+    )
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    assert f'<a href="{SPC1}" style="color:#b42318;text-decoration:underline">' in html
+    assert 'href="https://www.spc.noaa.gov/products/outlook/day3otlk.html"' in html
+    assert f'<a href="{api}" style="color:#b42318' in html
+    assert ".bn-warn b,.bn-warn a{color:#ff9b8f" in html
+    lines = msg.get_body(preferencelist=("plain",)).get_content().splitlines()
+    assert lines[lines.index("!! Tornado Watch") + 1] == api
+    assert lines[lines.index("!! Flash Flood Warning") + 1] == "!! x"
+    assert SPC1 in lines
+
+
+def test_alert_without_url_has_no_link():
+    sev = Severity(alerts=(Alert("Tornado Watch", "Until 9 PM"),))
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    banner = html[html.index('class="bn-warn"') : html.index("</td></tr>", html.index("Until"))]
+    assert banner.count("<a href") == 1 and ">Radar</a>" in banner  # no alert link
+    top = msg.get_body(preferencelist=("plain",)).get_content().split("\n\n")[0].splitlines()
+    assert top[:2] == ["!! Tornado Watch", "!! Until 9 PM"]
+
+
+def test_radar_in_flagged_banner_only():
+    msg = render([g()], {}, severity=Severity(outlooks=(outlook(),)))
+    top = msg.get_body(preferencelist=("plain",)).get_content().split("\n\n")[0].splitlines()
+    assert top[-1] == f"Radar: {RADAR}"
+    assert f'<a href="{RADAR}" style="color:#b42318' in html_of(msg)
+    msg = render([g()], {}, severity=Severity(outlooks=(outlook(1, "Marginal", 1),)))
+    assert msg.get_body(preferencelist=("plain",)).get_content().count(RADAR) == 1  # footer
+    assert html_of(msg).count(RADAR) == 1
+
+
+def test_footer_links_html_and_plain():
+    msg = render([g()], {}, radar="kfdr")
+    html = html_of(msg)
+    footer = html[html.index("Forecast discussion") - 400 :]
+    tags = (">NWS Norman<", ">Forecast discussion<", ">Radar<", ">Storm Prediction Center<")
+    order = [footer.index(t) for t in tags]
+    assert order == sorted(order)
+    assert f'href="{AFD.replace("&", "&amp;")}"' in html
+    assert 'href="https://radar.weather.gov/station/KFDR/standard"' in html
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert f"Forecast discussion: {AFD}" in plain
+    assert "Radar: https://radar.weather.gov/station/KFDR/standard" in plain
+    assert preview_of([g()], {}).count(RADAR) == 1

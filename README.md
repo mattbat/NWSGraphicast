@@ -113,6 +113,7 @@ configuration.
 | `GRAPHICAST_LAT` | `35.6528` | Latitude of the point checked for severe weather (Edmond, OK) |
 | `GRAPHICAST_LON` | `-97.4781` | Longitude of that point |
 | `GRAPHICAST_PLACE_NAME` | `Edmond` | Place named in the banner ("outlook covers Edmond") |
+| `GRAPHICAST_RADAR` | `KTLX` | Radar station for the "Radar" link (`radar.weather.gov/station/<station>/standard`; Oklahoma City by default) |
 | `GRAPHICAST_SEVERITY` | on | Set to `off` to disable the severe-weather flag entirely (no fetches, no flag, no banner) |
 | `GRAPHICAST_WIDGET` | on | Set to `off` to leave the weather widget out of the email (no weather fetches) |
 | `GRAPHICAST_ASSET_BASE_URL` | none | Public URL prefix of `assets/icons` for the widget icons (the workflows pin it to the commit). Unset, the icons are embedded in the email instead |
@@ -122,7 +123,10 @@ configuration.
 The email is laid out without cards: a compact navy header bar (office name on the left, date and
 time on the right, with an amber bottom edge), then for each graphic a text block with the title,
 a "Valid until" time in your local time zone and the description, followed by the image at the
-full width of the email and a "View on weather.gov" link. The page is white (near-black in dark
+full width of the email and a "View on weather.gov" link. Tapping an image opens it full size
+(the hosted JPEG when hosted, otherwise the weather.gov image). The footer reads "NWS Norman ·
+Forecast discussion · Radar · Storm Prediction Center" (the discussion is the office's Area
+Forecast Discussion), in the plain-text version too. The page is white (near-black in dark
 mode, through `prefers-color-scheme`). A graphic that is new or changed since the last send
 carries a **NEW** tag (the first run, or a run with no saved per-graphic state, tags nothing). A
 hidden preheader lists the graphic titles, with NEW ones first, so the inbox preview is useful.
@@ -169,6 +173,13 @@ Each send run and watch run checks the point set by `GRAPHICAST_LAT` / `GRAPHICA
 header, when the outlook is **Slight (2/5) or higher** or there is any of the alerts above. A
 Marginal outlook or keyword mentions alone only add a quieter "Heads up" banner, with no warning
 sign in the subject.
+
+**Links.** In the banner, each outlook line links to that day's SPC outlook page
+(`.../outlook/day1otlk.html`, `day2otlk`, `day3otlk`) and each alert line links to the alert:
+`Alert.url` is the alert's api.weather.gov URL (the feed's `id`), which is the only per-alert link
+the feed provides (it opens as JSON, not a formatted page), falling back to
+https://alerts.weather.gov if absent. A flagged banner ends with a Radar link (`GRAPHICAST_RADAR`).
+Plain text puts each URL on the line after its text. The alert URL is not part of the saved state.
 
 **When it emails.** Besides the usual "graphics changed" trigger, a run sends when **the risk
 rises** versus the baseline saved in the state file: the outlook reaches Slight or higher and is

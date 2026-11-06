@@ -587,3 +587,111 @@ Add the property `hosted: bool` (both set).
   URLs, the NWS link is present, and the total `as_bytes()` is < 50 KB.
 - `test_cli.py`: in hosted mode, publish is called before send (record call order); publish
   failure → exit 1, no send, state untouched; in inline mode, images are attached as JPEG.
+
+---
+
+## 11. Change 2: premium email design ("A", navy + amber, matched background)
+
+**Visual reference:** `docs/email_mockup.py`. The `email()` function there is the approved
+look: match its markup, spacing, colours and typography. (`app_frame()` only fakes the mail
+app for screenshots; don't port it.)
+
+### 11.1 Design tokens (light)
+
+| Token | Value | Use |
+|---|---|---|
+| page | `#f7fafb` | email background (matched to the owner's mail app) |
+| card | `#ffffff` | graphic cards |
+| line | `#e4eaee` | card hairline border |
+| navy / navy2 | `#0b1f3a` / `#14325c` | header gradient, titles |
+| amber | `#f5a524` | header kicker, 4 px header bottom border, "valid" dot |
+| body | `#3b4654` | descriptions |
+| meta | `#7a8594` | valid-until line |
+| link | `#1d4f91` | links |
+| badge | bg `#fff4dc`, fg `#8a4b00` | NEW tag |
+| shadow | `0 1px 2px rgba(16,24,40,.05),0 6px 16px rgba(16,24,40,.06)` | header and cards |
+
+**Dark tokens** (applied in `@media (prefers-color-scheme: dark)` through CSS classes with
+`!important`; inline styles carry the light values):
+page `#0f1318`, card `#182029`, line `#26303c`, title `#e8eef6`, body `#c3cfdd`, meta
+`#8b9bb0`, link `#8ab4ff`, badge bg `#3a2a0a` fg `#fcd34d`. The header stays navy.
+Add `<meta name="color-scheme" content="light dark">` and
+`<meta name="supported-color-schemes" content="light dark">`.
+
+Keep the layout to tables with inline styles (`role="presentation"`), max width 640 px. No
+external CSS, fonts or scripts.
+
+### 11.2 Structure (top to bottom)
+
+1. **Preheader:** a hidden div (`display:none;max-height:0;overflow:hidden;opacity:0`) holding
+   the graphic titles joined with ` · `, NEW ones first and prefixed `New: `. Pad it with
+   about 60 `&#8203;&nbsp;` so the body text doesn't leak into the inbox preview.
+2. **Header card:** kicker `NWS {OFFICE_NAME upper} · GRAPHICAST`; title `Forecast update`; meta
+   `{Weekday, Month D} · {h:MM AM} · {n} graphic(s)` in local time (singular when n == 1).
+3. **One card per active graphic, in feed order:**
+   - title, plus a `NEW` badge if it's in `new_numbers`
+   - `● Valid until {Ddd h:MM AM}` in local tz, with an amber dot
+   - description (if any)
+   - image: hosted URL, CID or NWS URL as today. Rounded 10 px, `width="100%"`.
+   - **Expired/blocked image fallback:** `alt="{title} (image unavailable, see weather.gov
+     link below)"` with `font-size:13px;color:#7a8594`, so a broken image shows a tidy caption.
+   - `View on weather.gov →` linking the original NWS image URL
+4. **Footer:** `NWS {OFFICE_NAME}` (https://www.weather.gov/{office}) · `Storm Prediction
+   Center` links. Then: `Sent when NWS {OFFICE_NAME} updates its graphics`. In hosted mode
+   append ` · images expire after {image_days} days`.
+
+**Plain-text part:** the same order. Title (prefixed `[NEW] ` when new), `Valid until …`,
+description, image URL (hosted if any), `View on weather.gov: <url>`, then the footer links.
+
+**Subject:** unchanged.
+
+### 11.3 NEW tags: per-graphic change tracking
+
+- `fingerprint.py`: add `graphic_hashes(graphics, images) -> dict[str, str]`, mapping
+  `str(number)` to the sha256 of the same canonical per-graphic dict `fingerprint()` uses
+  (refactor so both share one helper). `fingerprint()`'s value must not change.
+- State, per office: `{"fingerprint", "sent_at", "graphics": {"<number>": "<hash>"}}`.
+  Write `graphics` whenever `fingerprint` is written.
+- `new_numbers` = graphics whose hash differs from, or is missing in, the previous
+  `graphics` map. **If there's no previous map** (first run, or old state), no graphic is NEW.
+  `--force` doesn't change this.
+- Pass `new_numbers` to `render_email`/`render_html_preview`. Dry-run uses the same logic.
+
+### 11.4 Config
+
+`GRAPHICAST_OFFICE_NAME`, default `Norman`, gives the `office_name: str` field. Add it to the
+README table.
+
+### 11.5 Render API
+
+```python
+render_email(*, office, office_name, graphics, images, now, tz, sender, to,
+             hosted_urls=None, new_numbers=frozenset(), image_days=None) -> EmailMessage
+render_html_preview(*, office, office_name, graphics, images, now, tz,
+                    new_numbers=frozenset(), image_days=None) -> str
+```
+Use one HTML builder for both (the preview only swaps the image `src` for `data:` URIs).
+Keep `html.escape` on every feed string, including in the preheader and alt text.
+
+### 11.6 Tests
+
+- Render:
+  - the page background is `#f7fafb`, and the header and amber border are present
+  - the dark-mode `<style>` block and the color-scheme metas are present
+  - the preheader holds the titles, with NEW ones first and prefixed
+  - a NEW badge appears only on graphics in `new_numbers`
+  - the "Valid until" text is right for a known UTC `end` in CST and in CDT
+  - "1 graphic" vs "3 graphics"
+  - the alt fallback text is there
+  - the "images expire after N days" text appears only in hosted mode
+  - `<script>` in a title or description is escaped everywhere
+  - hosted email size is still < 50 KB
+- Fingerprint: `graphic_hashes` is stable, changes only for the graphic whose image bytes
+  changed, and `fingerprint()` keeps the value it had before this refactor (hard-code the hex
+  of a fixed input, computed before the change).
+- CLI:
+  - first run → no NEW
+  - second run with one changed image → exactly that graphic NEW, and the state `graphics`
+    map is updated
+  - state from before this change (no `graphics` key) → no NEW, no crash
+- Coverage gate stays at 90%.

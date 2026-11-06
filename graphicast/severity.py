@@ -26,6 +26,7 @@ LEVELS = {
     "MDT": (4, "Moderate"),
     "HIGH": (5, "High"),
 }  # TSTM and anything else is ignored
+LEVEL_NAMES = {level: name for level, name in LEVELS.values()}
 FLAG_LEVEL = 2
 OUTLOOK_DAYS = (1, 2, 3)
 
@@ -228,3 +229,60 @@ def severity_rose(sev: Severity, saved: object) -> bool:
     if sev.max_level >= FLAG_LEVEL and sev.max_level > level:
         return True
     return any(a.event not in alerts for a in sev.alerts)
+
+
+def _saved_parts(saved: object) -> tuple[int, list[str]] | None:
+    """(max_level, alert events) from a saved snapshot, or None if missing or malformed."""
+    if not isinstance(saved, dict):
+        return None
+    level, alerts = saved.get("max_level"), saved.get("alerts")
+    if not isinstance(level, int) or not isinstance(alerts, list):
+        return None
+    return level, alerts
+
+
+def rise_note(sev: Severity, saved: object, *, off_schedule: bool) -> str | None:
+    """One line saying what rose versus the saved baseline (same rule as `severity_rose`), for
+    an email sent because of that rise. `off_schedule` is True for a watch (non-slot) run."""
+    parts = _saved_parts(saved)
+    if parts is None or not sev.ok:
+        return None
+    old_level, old_alerts = parts
+    new_alerts = [a.event for a in sev.alerts if a.event not in old_alerts]
+    level_part = None
+    if sev.max_level >= FLAG_LEVEL and sev.max_level > old_level:
+        before = LEVEL_NAMES.get(old_level, "no severe risk")
+        level_part = f"from {before} to {LEVEL_NAMES[sev.max_level]} ({sev.max_level}/5)"
+    alert_part = f"new {', '.join(new_alerts)}" if new_alerts else None
+    if level_part is None and alert_part is None:
+        return None
+    if off_schedule:
+        body = "; ".join(
+            p for p in (f"severe risk rose {level_part}" if level_part else None, alert_part) if p
+        )
+        return f"Sent outside the usual schedule: {body}."
+    body = "; ".join(p for p in (level_part, alert_part) if p)
+    return f"Severe risk rose since the last check: {body}."
+
+
+def lowered_note(sev: Severity, sent: object) -> str | None:
+    """A soft note when the risk is lower than at the last *sent* email: the level dropped
+    and/or alerts in that email are no longer active. None for a failed assessment or
+    missing or malformed `sent` data. It never triggers a send."""
+    parts = _saved_parts(sent)
+    if parts is None or not sev.ok:
+        return None
+    old_level, old_alerts = parts
+    sentences = []
+    if sev.max_level < old_level:
+        if sev.max_level > 0:
+            sentences.append(
+                f"Severe risk has dropped to {LEVEL_NAMES[sev.max_level]} since the last email."
+            )
+        else:
+            sentences.append("Severe risk has dropped below Marginal since the last email.")
+    active = {a.event for a in sev.alerts}
+    gone = [e for e in old_alerts if e not in active]
+    if gone:
+        sentences.append(f"No longer in effect: {', '.join(gone)}.")
+    return " ".join(sentences) or None

@@ -35,12 +35,18 @@ def image_type(data: bytes) -> tuple[str, str]:
     return "application", "octet-stream"
 
 
-def format_subject(office: str, now: datetime, tz: str, flagged: bool = False) -> str:
+def format_subject(
+    office: str, now: datetime, tz: str, flagged: bool = False, lead: str | None = None
+) -> str:
+    """e.g. "⚠️ Enhanced Risk today · NWS OUN Graphicast — Fri Nov 6, 6:00 PM"; `lead` is the
+    optional phrase between the warning sign and the title."""
     local = now.astimezone(ZoneInfo(tz))
     hour = str(int(local.strftime("%I")))
     flag = "\u26a0\ufe0f " if flagged else ""
+    lead_text = f"{lead} \u00b7 " if lead else ""
     return (
-        f"{flag}NWS {office.upper()} Graphicast — {local:%a %b} {local.day}, {hour}:{local:%M %p}"
+        f"{flag}{lead_text}NWS {office.upper()} Graphicast — "
+        f"{local:%a %b} {local.day}, {hour}:{local:%M %p}"
     )
 
 
@@ -101,6 +107,21 @@ class Banner:
 def _day_label(valid: datetime, now: datetime, tz: str) -> str:
     local = _local(valid, tz)
     return "today" if local.date() == _local(now, tz).date() else f"{local:%A}"
+
+
+def subject_lead(severity: Severity | None, new_count: int, now: datetime, tz: str) -> str | None:
+    """Why to open the email, for the subject. If flagged: the first alert event (plus " +N"
+    for more), else the highest outlook ("Enhanced Risk today"). Otherwise "N new graphic(s)"
+    when any graphic is NEW, else None."""
+    if severity is not None and severity.flagged:
+        if severity.alerts:
+            extra = len(severity.alerts) - 1
+            return severity.alerts[0].event + (f" +{extra}" if extra else "")
+        top = min(severity.outlooks, key=lambda o: (-o.level, o.day))
+        return f"{top.name} Risk {_day_label(top.valid, now, tz)}"
+    if new_count:
+        return f"{new_count} new graphic" + ("s" if new_count != 1 else "")
+    return None
 
 
 def build_banner(
@@ -194,8 +215,11 @@ def _render_plain(
     image_days: int | None,
     banner: Banner | None,
     conditions: Conditions | None = None,
+    note: str | None = None,
 ) -> str:
     blocks = ["\n".join(banner.plain_lines())] if banner else []
+    if note:
+        blocks.append(note)
     if conditions:
         blocks.append(widget_plain(conditions))
     for g in graphics:
@@ -252,11 +276,18 @@ def _render_html(
     banner: Banner | None,
     conditions: Conditions | None = None,
     icon_src: Callable[[str], str] | None = None,
+    note: str | None = None,
 ) -> str:
     local = _local(now, tz)
     stamp = f"{local:%a %b} {local.day} \u00b7 {_clock(local)}"
     name = escape(office_name)
     widget = widget_html(conditions, icon_src) if conditions and icon_src else ""
+    note_row = (
+        f'<tr><td class="c-meta" style="padding:0 10px 10px;font-size:12px;line-height:1.45;color:{META}">'
+        f"{escape(note)}</td></tr>\n"
+        if note
+        else ""
+    )
     blocks = "\n".join(_graphic_block(g, src_for(g), tz, g.number in new_numbers) for g in graphics)
     note = escape(_footer_note(office_name, image_days))
     return f"""<!DOCTYPE html>
@@ -272,7 +303,7 @@ def _render_html(
 <tr><td align="center" style="padding:8px 0 0">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
 {_header_html(office_name, stamp, banner)}
-{widget}
+{note_row}{widget}
 {blocks}
 <tr><td class="c-meta" style="padding:6px 8px 26px;text-align:center;font-size:12px;line-height:1.7;color:#8a94a3">
 <a class="c-link" href="{escape(office_url(office), quote=True)}" style="color:{LINK};text-decoration:none;font-weight:600">NWS {name}</a> &nbsp;&middot;&nbsp;
@@ -300,12 +331,21 @@ def render_email(
     place_name: str = "Edmond",
     conditions: Conditions | None = None,
     asset_base_url: str | None = None,
+    note: str | None = None,
 ) -> EmailMessage:
     """Build the multipart email. `image_days` is shown in the footer (hosted mode only).
-    Widget icons link to `asset_base_url` when set, else they are attached as CID parts."""
+    `note` is an optional quiet line under the header/banner (why it was sent, or that risk
+    dropped). Widget icons link to `asset_base_url` when set, else they are attached as CID parts."""
     msg = EmailMessage()
     banner = build_banner(severity, place_name, now, tz)
-    msg["Subject"] = format_subject(office, now, tz, flagged=bool(severity and severity.flagged))
+    new_count = sum(1 for g in graphics if g.number in new_numbers)
+    msg["Subject"] = format_subject(
+        office,
+        now,
+        tz,
+        flagged=bool(severity and severity.flagged),
+        lead=subject_lead(severity, new_count, now, tz),
+    )
     msg["From"] = sender
     msg["To"] = to
     msg["Date"] = email.utils.format_datetime(now)
@@ -340,6 +380,7 @@ def render_email(
             image_days,
             banner,
             conditions,
+            note,
         )
     )
     html = _render_html(
@@ -354,6 +395,7 @@ def render_email(
         banner,
         conditions,
         icon_src if conditions else None,
+        note,
     )
     msg.add_alternative(html, subtype="html")
     html_part = msg.get_payload()[1]
@@ -378,6 +420,7 @@ def render_html_preview(
     severity: Severity | None = None,
     place_name: str = "Edmond",
     conditions: Conditions | None = None,
+    note: str | None = None,
 ) -> str:
     """HTML with downloaded images and widget icons inlined as data: URIs."""
 
@@ -405,4 +448,5 @@ def render_html_preview(
         banner,
         conditions,
         icon_src,
+        note,
     )

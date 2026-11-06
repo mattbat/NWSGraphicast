@@ -70,3 +70,8 @@ def test_bad_image_days(raw):
 def test_office_name():
     assert load_config({}).office_name == "Norman"
     assert load_config({"GRAPHICAST_OFFICE_NAME": " Tulsa "}).office_name == "Tulsa"
+
+
+def test_subject_prefix():
+    assert load_config({}).subject_prefix == ""
+    assert load_config({"GRAPHICAST_SUBJECT_PREFIX": " [TEST] "}).subject_prefix == "[TEST]"

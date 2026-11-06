@@ -216,6 +216,8 @@ def main(
             new_numbers=new_numbers,
             image_days=cfg.image_days if hosted_urls is not None else None,
         )
+        if cfg.subject_prefix:
+            msg.replace_header("Subject", f"{cfg.subject_prefix} {msg['Subject']}")
         try:
             send(msg, user=cfg.smtp_user, password=cfg.smtp_password)
         except Exception as exc:

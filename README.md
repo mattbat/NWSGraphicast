@@ -36,6 +36,15 @@ The earlier Raspberry Pi / Google Sheets version is preserved in git history (co
 4. To test, open the Actions tab, choose "graphicast" and "Run workflow": first with `dry_run`
    (the rendered email is uploaded as an artifact), then with `force` to send a real email.
 
+## Testing a change by email (before merging)
+
+`.github/workflows/test-email.yml` sends one real email from any branch except `master`. Push
+a commit whose message contains `[send-test-email]`. Once the workflow is on `master`, you
+can also use Actions → test-email → Run workflow and pick a branch. The email's subject starts
+with `[TEST]`. The run uses a throwaway state file, so the real schedule's change detection is
+untouched. It publishes images to the `images` branch like a normal send. It needs the three
+secrets above. If no graphics are active at that moment, nothing is sent.
+
 ## Local run
 
 ```
@@ -69,6 +78,7 @@ configuration.
 |----------|---------|---------|
 | `GRAPHICAST_OFFICE` | `oun` | NWS forecast office |
 | `GRAPHICAST_OFFICE_NAME` | `Norman` | Office name shown in the email header and footer |
+| `GRAPHICAST_SUBJECT_PREFIX` | none | Text put before the subject, e.g. `[TEST]` (the test-email workflow sets this) |
 | `GRAPHICAST_TZ` | `America/Chicago` | Time zone for send slots |
 | `GRAPHICAST_HOURS` | `6,12,18` | Local send hours |
 | `GRAPHICAST_STATE` | `state/state.json` | State file path |

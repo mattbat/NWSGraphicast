@@ -382,3 +382,20 @@ def test_hosted_footer_mentions_expiry_and_inline_does_not(
     send = Sender()
     run(["--ignore-schedule"], state2, get2, send, FIXTURE_NOW)
     assert "images expire" not in html_of(send.msgs[0][0])
+
+
+def test_subject_prefix_applied(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    send = Sender()
+    env = {**ENV, "GRAPHICAST_SUBJECT_PREFIX": "[TEST]"}
+    assert run(["--ignore-schedule"], state, get, send, FIXTURE_NOW, env=env) == 0
+    subject = send.msgs[0][0]["Subject"]
+    assert subject.startswith("[TEST] NWS OUN Graphicast")
+    assert subject.count("[TEST]") == 1
+
+
+def test_no_subject_prefix_by_default(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    send = Sender()
+    run(["--ignore-schedule"], state, get, send, FIXTURE_NOW)
+    assert send.msgs[0][0]["Subject"].startswith("NWS OUN Graphicast")

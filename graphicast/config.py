@@ -32,6 +32,7 @@ class Config:
     images_base_url: str | None = None
     image_days: int = DEFAULT_IMAGE_DAYS
     office_name: str = DEFAULT_OFFICE_NAME
+    subject_prefix: str = ""  # e.g. "[TEST]" for test sends
 
     @property
     def hosted(self) -> bool:
@@ -83,6 +84,7 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         images_base_url=_opt(env, "GRAPHICAST_IMAGES_BASE_URL"),
         image_days=_parse_days(_opt(env, "GRAPHICAST_IMAGE_DAYS")),
         office_name=_opt(env, "GRAPHICAST_OFFICE_NAME") or DEFAULT_OFFICE_NAME,
+        subject_prefix=_opt(env, "GRAPHICAST_SUBJECT_PREFIX") or "",
     )
 
 

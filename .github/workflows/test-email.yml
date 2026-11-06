@@ -1,0 +1,45 @@
+name: test-email
+# Sends one real email from any non-master branch, so changes can be checked in a real
+# inbox before merging. Trigger it by pushing a commit whose message contains
+# "[send-test-email]", or, once this file is on master, with "Run workflow" on any branch.
+# Safe to run anytime: it uses a throwaway state file (the real schedule is unaffected)
+# and prefixes the subject with "[TEST]". Images are published to the real images branch
+# like a normal send, and expire after 7 days.
+on:
+  push:
+    branches-ignore: [master, state, images]
+  workflow_dispatch:
+permissions:
+  contents: write   # push the images branch
+concurrency:
+  group: graphicast   # never overlap with a scheduled run (both push the images branch)
+  cancel-in-progress: false
+jobs:
+  send:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[send-test-email]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.12" }
+      - run: pip install .
+      - name: Check out images branch
+        run: |
+          git config user.name "graphicast-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin images; then
+            git worktree add images origin/images
+          else
+            git worktree add --orphan -b images images
+          fi
+      - name: Send test email
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GRAPHICAST_STATE: ${{ runner.temp }}/test-state.json
+          GRAPHICAST_IMAGES_DIR: images
+          GRAPHICAST_IMAGES_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/images
+          GRAPHICAST_SUBJECT_PREFIX: "[TEST]"
+        run: python -m graphicast --force -v

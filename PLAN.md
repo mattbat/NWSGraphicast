@@ -148,10 +148,8 @@ Phase 2 — move off the Pi
 - [ ] Run in parallel with the Pi for a few days, compare emails, then remove the cron job
 
 Phase 3 — extras (as chosen)
-- [ ] ntfy notifier
-- [ ] GitHub Pages page + archive
+- [ ] GitHub Pages page (current graphics only)
 - [ ] PWA manifest/service worker + Web Push
-- [ ] NWS alerts integration
 
 ## 7. Decisions (2026-11-06)
 

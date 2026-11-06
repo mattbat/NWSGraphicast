@@ -1,8 +1,11 @@
 *.ini
-*.json
+nwsgraphicast-*.json
 archive
 *last_update
 
+# Runtime output
+state/
+out/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

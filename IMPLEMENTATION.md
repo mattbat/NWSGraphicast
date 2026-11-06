@@ -435,5 +435,22 @@ Sections:
 `mesonet_text`, `nws_text` and `fake_get(mapping)`. `fake_get` returns a callable that serves
 bytes by URL, or raises `urllib.error.URLError` for URLs mapped to an Exception.
 
+## 9. Test requirements (all WPs)
+
+- Every public function has at least one test, covering the happy path plus each error branch.
+- **Coverage gate:** `pytest --cov=graphicast --cov-fail-under=90` must pass. `pytest-cov`
+  is a dev dependency, and CI runs with the gate.
+- Test edge cases, not just fixtures: empty feed, `"No Image Available"` entry, missing
+  required field, non-numeric times, HTML/script characters in titles (must be escaped),
+  unicode text, radar loop GIF, a graphic that starts exactly at `now` (active) or ends
+  exactly at `now` (inactive), corrupt state file.
+- **Live test (opt-in):** `tests/test_live.py`, marked `@pytest.mark.live` and skipped unless
+  `GRAPHICAST_LIVE=1`. It fetches both real feeds for `oun` and asserts each parses and its
+  graphics have https image URLs. Register the `live` marker in pyproject. The CI job doesn't
+  run it. A separate weekly workflow job (`ci.yml`, `schedule: cron "23 15 * * 1"` plus
+  `workflow_dispatch`) runs `GRAPHICAST_LIVE=1 pytest -m live` to catch feed format changes early.
+- Tests never touch the real network (except `live`), the real clock, or real SMTP. Inject
+  `now`, `get` and `send`.
+
 Phase 3 (PWA + Web Push) is **out of scope** for this spec. It gets its own spec after v2 email
 has been running on Actions.

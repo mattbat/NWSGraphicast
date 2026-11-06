@@ -1,0 +1,64 @@
+name: graphicast
+on:
+  schedule:
+    # 6am/12pm/6pm Central in both CDT (11,17,23 UTC) and CST (12,18,0 UTC).
+    # The script decides which run is the real one (see graphicast/schedule.py).
+    - cron: "7 0,11,12,17,18,23 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Send even if nothing changed"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Render only; upload the email as an artifact, don't send"
+        type: boolean
+        default: false
+permissions:
+  contents: write   # push state branch
+  actions: write    # keepalive
+concurrency:
+  group: graphicast
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Check out state branch
+        run: |
+          git config user.name "graphicast-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin state; then
+            git worktree add state origin/state
+          else
+            git worktree add --orphan -b state state
+          fi
+      - name: Run
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GRAPHICAST_STATE: state/state.json
+        run: |
+          args=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then args="--ignore-schedule"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then args="$args --force"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="$args --dry-run"; fi
+          python -m graphicast $args
+      - name: Save state
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          cd state
+          git add state.json 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "state: $(date -u +%FT%TZ)"
+          git push origin HEAD:state
+      - name: Upload preview
+        if: ${{ inputs.dry_run == true }}
+        uses: actions/upload-artifact@v4
+        with: { name: email-preview, path: out/ }
+      - uses: liskin/gh-workflow-keepalive@v1

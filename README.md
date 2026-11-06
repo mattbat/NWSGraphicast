@@ -1,34 +1,64 @@
 # NWSGraphicast
 
-This script emails a user the latest Graphicast forecast images provided by the National Weather Service (NWS).
+NWSGraphicast emails you the current National Weather Service "Graphicast" forecast images for a
+forecast office (default: Norman, OK, `oun`). The images are embedded in the email, and it is sent
+only when the set of active graphics has changed since the last email.
 
+## How it runs
 
-<NOTE: The following instructions need to be updated>
----
+A GitHub Actions workflow (`.github/workflows/graphicast.yml`) runs the Python package on a
+schedule. Emails go out at 6am, 12pm and 6pm Central time, and only when something changed. The
+cron fires at both the CDT and CST UTC hours; `graphicast/schedule.py` makes sure only the first
+run in each slot does any work. The last sent state is kept on a `state` git branch.
 
-1. Must configure prior to running
-	* python main.py -c
-	* **NWS Office Abbreviation**  
-	   Most NWS offices are supported.  
-	   Find your local NWS office abbreviation here: http://www.wrh.noaa.gov/wrh/forecastoffice_tab.php  
-	   Example: 'OUN' 
-	     
-	* **Gmail Username**  
-	   The gmail username used to send the email.
-	   Only Gmail is supported for sending at this time.  
-	   Example: `USERNAME@gmail.com`  
-	   
-	   Gmail security settings must be set to "Allow Less Secure Apps" for sign-in.  
-	   The configuration option is located here: https://myaccount.google.com/security?utm_source=OGB#signin  
-	   It is *highly* recommended that you created a dedicated account to for this purpose since it must allow this insecure login setting.
-	 
-	* **Gmail Password**  
-	   The gmail password used to send the email.  
-	   Only Gmail is supported for sending at this time.  
-	   Example: `PASSWORD`     
-	   
-	* **TO Email**  
-	   The email address to receive the notifications.  
-	   Example: `USERNAME@domain.com`   
-	   	
-	
+The earlier Raspberry Pi / Google Sheets version is preserved in git history (commit `50acc5f`).
+
+## Setup
+
+1. Gmail: enable 2-Step Verification, then create an App Password at
+   https://myaccount.google.com/apppasswords.
+2. In the repo, go to Settings > Secrets and variables > Actions and add these secrets:
+   `SMTP_USER` (the Gmail address that sends), `SMTP_PASSWORD` (the App Password) and `EMAIL_TO`
+   (the recipient).
+3. Scheduled workflows only run from the default branch, so the workflow must be on `master`.
+4. To test, open the Actions tab, choose "graphicast" and "Run workflow": first with `dry_run`
+   (the rendered email is uploaded as an artifact), then with `force` to send a real email.
+
+## Local run
+
+```
+pip install -e ".[dev]"
+python -m graphicast --dry-run --ignore-schedule
+pytest -q --cov=graphicast --cov-fail-under=90   # tests with the 90% coverage gate (as in CI)
+GRAPHICAST_LIVE=1 pytest -m live -q              # opt-in: fetch the real feeds
+```
+
+The live test hits the real Mesonet and NWS feeds and is skipped unless `GRAPHICAST_LIVE=1`.
+CI runs it weekly (Mondays) and on manual dispatch to catch feed format changes early.
+
+A dry run writes `out/email.eml` and `out/email.html` and sends nothing. Other flags: `--force`,
+`--ignore-schedule`, `--state PATH`, `--out DIR`, `-v`. Exit codes: 0 success (including skip and
+no change), 1 all sources or SMTP failed, 2 bad configuration.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `GRAPHICAST_OFFICE` | `oun` | NWS forecast office |
+| `GRAPHICAST_TZ` | `America/Chicago` | Time zone for send slots |
+| `GRAPHICAST_HOURS` | `6,12,18` | Local send hours |
+| `GRAPHICAST_STATE` | `state/state.json` | State file path |
+| `SMTP_USER` | none | Gmail address used to send (required to send) |
+| `SMTP_PASSWORD` | none | Gmail App Password (required to send) |
+| `EMAIL_TO` | `SMTP_USER` | Recipient |
+
+## Data sources
+
+Graphics are fetched from the Oklahoma Mesonet JSON API first, then from the NWS XML feed
+(`weather.gov/source/<office>/graphicast/graphicast.xml`) if that fails. Only graphics active at
+the current time are used. If both sources fail, or sending fails, the run fails: you will see a
+red run in Actions and GitHub sends its usual workflow failure email.
+
+## License
+
+See `LICENSE`.

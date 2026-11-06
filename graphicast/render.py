@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 from graphicast.model import Graphic
 from graphicast.severity import Severity
+from graphicast.weather import Conditions
+from graphicast.widget import icon_names, icon_path, widget_html, widget_plain
 
 SPC_URL = "https://www.spc.noaa.gov/"
 
@@ -191,8 +193,11 @@ def _render_plain(
     new_numbers: frozenset[int],
     image_days: int | None,
     banner: Banner | None,
+    conditions: Conditions | None = None,
 ) -> str:
     blocks = ["\n".join(banner.plain_lines())] if banner else []
+    if conditions:
+        blocks.append(widget_plain(conditions))
     for g in graphics:
         lines = [f"[NEW] {g.title}" if g.number in new_numbers else g.title]
         lines.append(f"Valid until {format_valid_until(g.end, tz)}")
@@ -245,10 +250,13 @@ def _render_html(
     new_numbers: frozenset[int],
     image_days: int | None,
     banner: Banner | None,
+    conditions: Conditions | None = None,
+    icon_src: Callable[[str], str] | None = None,
 ) -> str:
     local = _local(now, tz)
     stamp = f"{local:%a %b} {local.day} \u00b7 {_clock(local)}"
     name = escape(office_name)
+    widget = widget_html(conditions, icon_src) if conditions and icon_src else ""
     blocks = "\n".join(_graphic_block(g, src_for(g), tz, g.number in new_numbers) for g in graphics)
     note = escape(_footer_note(office_name, image_days))
     return f"""<!DOCTYPE html>
@@ -264,6 +272,7 @@ def _render_html(
 <tr><td align="center" style="padding:8px 0 0">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
 {_header_html(office_name, stamp, banner)}
+{widget}
 {blocks}
 <tr><td class="c-meta" style="padding:6px 8px 26px;text-align:center;font-size:12px;line-height:1.7;color:#8a94a3">
 <a class="c-link" href="{escape(office_url(office), quote=True)}" style="color:{LINK};text-decoration:none;font-weight:600">NWS {name}</a> &nbsp;&middot;&nbsp;
@@ -289,8 +298,11 @@ def render_email(
     image_days: int | None = None,
     severity: Severity | None = None,
     place_name: str = "Edmond",
+    conditions: Conditions | None = None,
+    asset_base_url: str | None = None,
 ) -> EmailMessage:
-    """Build the multipart email. `image_days` is shown in the footer (hosted mode only)."""
+    """Build the multipart email. `image_days` is shown in the footer (hosted mode only).
+    Widget icons link to `asset_base_url` when set, else they are attached as CID parts."""
     msg = EmailMessage()
     banner = build_banner(severity, place_name, now, tz)
     msg["Subject"] = format_subject(office, now, tz, flagged=bool(severity and severity.flagged))
@@ -302,6 +314,15 @@ def render_email(
         if hosted_urls is None and g.image_url in images and g.image_url not in cids:
             cids[g.image_url] = make_msgid()
 
+    icon_cids: dict[str, str] = {}
+    if conditions and not asset_base_url:
+        icon_cids = {name: make_msgid() for name in icon_names(conditions)}
+
+    def icon_src(name: str) -> str:
+        if asset_base_url:
+            return f"{asset_base_url.rstrip('/')}/{name}.png"
+        return f"cid:{icon_cids[name][1:-1]}"
+
     def src(g: Graphic) -> str:
         if hosted_urls and g.image_url in hosted_urls:
             return hosted_urls[g.image_url]
@@ -310,17 +331,37 @@ def render_email(
 
     msg.set_content(
         _render_plain(
-            office, office_name, graphics, tz, hosted_urls, new_numbers, image_days, banner
+            office,
+            office_name,
+            graphics,
+            tz,
+            hosted_urls,
+            new_numbers,
+            image_days,
+            banner,
+            conditions,
         )
     )
     html = _render_html(
-        office, office_name, graphics, src, now, tz, new_numbers, image_days, banner
+        office,
+        office_name,
+        graphics,
+        src,
+        now,
+        tz,
+        new_numbers,
+        image_days,
+        banner,
+        conditions,
+        icon_src if conditions else None,
     )
     msg.add_alternative(html, subtype="html")
     html_part = msg.get_payload()[1]
     for url, cid in cids.items():
         maintype, subtype = image_type(images[url])
         html_part.add_related(images[url], maintype, subtype, cid=cid)
+    for name, cid in icon_cids.items():
+        html_part.add_related(icon_path(name).read_bytes(), "image", "png", cid=cid)
     return msg
 
 
@@ -336,8 +377,13 @@ def render_html_preview(
     image_days: int | None = None,
     severity: Severity | None = None,
     place_name: str = "Edmond",
+    conditions: Conditions | None = None,
 ) -> str:
-    """HTML with downloaded images inlined as data: URIs."""
+    """HTML with downloaded images and widget icons inlined as data: URIs."""
+
+    def icon_src(name: str) -> str:
+        data = base64.b64encode(icon_path(name).read_bytes()).decode("ascii")
+        return f"data:image/png;base64,{data}"
 
     def src(g: Graphic) -> str:
         data = images.get(g.image_url)
@@ -348,5 +394,15 @@ def render_html_preview(
 
     banner = build_banner(severity, place_name, now, tz)
     return _render_html(
-        office, office_name, graphics, src, now, tz, new_numbers, image_days, banner
+        office,
+        office_name,
+        graphics,
+        src,
+        now,
+        tz,
+        new_numbers,
+        image_days,
+        banner,
+        conditions,
+        icon_src,
     )

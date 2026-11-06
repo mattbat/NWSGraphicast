@@ -37,3 +37,16 @@ def test_live_assess_official_returns_severity() -> None:
 
     sev = assess_official(DEFAULT_LAT, DEFAULT_LON, http.get_bytes)
     assert isinstance(sev, Severity) and sev.mentions == ()
+
+
+def test_live_fetch_conditions_returns_conditions() -> None:
+    from datetime import UTC, datetime
+
+    from graphicast.config import DEFAULT_LAT, DEFAULT_LON, DEFAULT_PLACE_NAME
+    from graphicast.schedule import DEFAULT_TZ
+    from graphicast.weather import Conditions, fetch_conditions
+
+    c = fetch_conditions(
+        DEFAULT_LAT, DEFAULT_LON, DEFAULT_PLACE_NAME, DEFAULT_TZ, datetime.now(UTC), http.get_bytes
+    )
+    assert isinstance(c, Conditions) and len(c.hours) >= 1

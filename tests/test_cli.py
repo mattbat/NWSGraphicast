@@ -737,3 +737,81 @@ def test_watch_dry_run_no_rise_saves_nothing(tmp_path, fake_get, mesonet_text, n
         argv=("--dry-run",),
     )  # fmt: skip
     assert rc == 0 and state.read_text() == before
+
+
+# --- Change 5: weather widget ----------------------------------------------------------------
+
+
+def widget_run(tmp_path, fake_get, mesonet_text, nws_text, argv, now, env=ENV, state=None, **over):
+    from tests.test_weather import served
+
+    send = Sender()
+    get, st, out = setup(tmp_path, fake_get, mesonet_text, nws_text, **{**served(), **over})
+    st = state or st
+    rc = run(list(argv), st, get, send, now, env=env)
+    return rc, get, send, out
+
+
+def points_fetched(get):
+    return [u for u in get.urls if "api.weather.gov/points" in u]
+
+
+def test_send_fetches_conditions_and_renders_widget(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    env = {**ENV, "GRAPHICAST_ASSET_BASE_URL": "https://a.example/icons"}
+    rc, get, send, _ = widget_run(
+        tmp_path, fake_get, mesonet_text, nws_text, ["--ignore-schedule"], FIXTURE_NOW, env=env
+    )
+    assert rc == 0 and len(points_fetched(get)) == 1
+    html = send.msgs[0][0].get_body(preferencelist=("html",)).get_content()
+    assert "Feels like 38°" in html and "https://a.example/icons/cloud-fog.png" in html
+
+
+def test_weather_failure_still_sends_without_widget(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    rc, get, send, _ = widget_run(
+        tmp_path, fake_get, mesonet_text, nws_text, ["--ignore-schedule"], FIXTURE_NOW,
+        **{"https://api.weather.gov/points/35.6528,-97.4781": urllib.error.URLError("down")},
+    )  # fmt: skip
+    assert rc == 0 and len(send.msgs) == 1
+    assert "Feels like" not in send.msgs[0][0].get_body(preferencelist=("html",)).get_content()
+
+
+def test_widget_off_skips_points_fetch(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    env = {**ENV, "GRAPHICAST_WIDGET": "OFF"}
+    rc, get, send, _ = widget_run(
+        tmp_path, fake_get, mesonet_text, nws_text, ["--ignore-schedule"], FIXTURE_NOW, env=env
+    )
+    assert rc == 0 and len(send.msgs) == 1 and not points_fetched(get)
+
+
+def test_no_change_run_does_not_fetch_conditions(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    run(["--ignore-schedule"], state, get, Sender(), FIXTURE_NOW)
+    rc, get2, send, _ = widget_run(
+        tmp_path, fake_get, mesonet_text, nws_text, ["--ignore-schedule"], FIXTURE_NOW, state=state
+    )
+    assert rc == 0 and send.msgs == [] and not points_fetched(get2)
+
+
+def test_watch_without_rise_does_not_fetch_conditions(tmp_path, fake_get, mesonet_text, nws_text):
+    state = tmp_path / "state.json"
+    seed_state(state, level=2)
+    send = Sender()
+    rc, get = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, label="MRGL")
+    assert rc == 0 and not points_fetched(get)
+
+
+def test_dry_run_writes_widget_with_data_uris(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    rc, get, _, out = widget_run(
+        tmp_path, fake_get, mesonet_text, nws_text,
+        ["--ignore-schedule", "--dry-run", "--out", str(tmp_path / "out")], FIXTURE_NOW, env={},
+    )  # fmt: skip
+    html = (out / "email.html").read_text()
+    assert "Feels like 38°" in html and "data:image/png;base64," in html

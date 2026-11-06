@@ -99,3 +99,12 @@ def test_bad_coordinates(key, raw):
 def test_place_name_default_and_override():
     assert load_config({}).place_name == "Edmond"
     assert load_config({"GRAPHICAST_PLACE_NAME": "Tulsa"}).place_name == "Tulsa"
+
+
+def test_widget_and_asset_base_url_config():
+    from graphicast.config import load_config
+
+    cfg = load_config({})
+    assert cfg.widget is True and cfg.asset_base_url is None
+    cfg = load_config({"GRAPHICAST_WIDGET": " Off ", "GRAPHICAST_ASSET_BASE_URL": " https://a/i "})
+    assert cfg.widget is False and cfg.asset_base_url == "https://a/i"

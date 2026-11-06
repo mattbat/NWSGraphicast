@@ -114,6 +114,8 @@ configuration.
 | `GRAPHICAST_LON` | `-97.4781` | Longitude of that point |
 | `GRAPHICAST_PLACE_NAME` | `Edmond` | Place named in the banner ("outlook covers Edmond") |
 | `GRAPHICAST_SEVERITY` | on | Set to `off` to disable the severe-weather flag entirely (no fetches, no flag, no banner) |
+| `GRAPHICAST_WIDGET` | on | Set to `off` to leave the weather widget out of the email (no weather fetches) |
+| `GRAPHICAST_ASSET_BASE_URL` | none | Public URL prefix of `assets/icons` for the widget icons (the workflows pin it to the commit). Unset, the icons are embedded in the email instead |
 
 ## Email design
 
@@ -125,7 +127,24 @@ mode, through `prefers-color-scheme`). A graphic that is new or changed since th
 carries a **NEW** tag (the first run, or a run with no saved per-graphic state, tags nothing). A
 hidden preheader lists the graphic titles, with NEW ones first, so the inbox preview is useful.
 If a hosted image has expired, a short caption shows instead of a broken image. When there is
-severe weather to report, a banner joins the bottom of the header (see below). The design
+severe weather to report, a banner joins the bottom of the header (see below).
+
+**Weather widget.** Under the header (and banner) sits a compact blue card with the current
+conditions for `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default) from api.weather.gov: the
+temperature and a short description with a feels-like value, today's high and low, the next six
+hours with an icon, temperature and (when any hour is 20% or more) a chance of rain, and a row
+with sunrise, sunset, wind and the highest rain chance over the next 12 hours. The temperature
+comes from the nearest recent station observation, falling back to the hourly forecast; sunrise
+and sunset are computed locally. The card keeps its own colours in dark mode, and its text is
+readable with images blocked. It is fetched only when an email is rendered, and if the weather
+service is unavailable the email simply has no widget. Disable it with `GRAPHICAST_WIDGET=off`.
+The design reference is [`docs/widget_mockup.py`](docs/widget_mockup.py).
+
+**Icons.** The widget icons are [Lucide](https://lucide.dev) icons (ISC licence, see
+[`assets/icons/LICENSE-lucide.txt`](assets/icons/LICENSE-lucide.txt)), rendered to 72x72 PNGs in
+`assets/icons/`; `assets/icons/src/render_icons.py` explains how to regenerate them. Emails link to
+them through `GRAPHICAST_ASSET_BASE_URL` (a commit-pinned raw.githubusercontent.com URL in the
+workflows, so later icon changes never alter old emails). The design
 references are [`docs/layout_mockup.py`](docs/layout_mockup.py) and
 [`docs/email_mockup.py`](docs/email_mockup.py).
 
@@ -179,6 +198,8 @@ red run in Actions and GitHub sends its usual workflow failure email.
 | `graphicast/fingerprint.py` | Change detection (whole set and per graphic, for NEW tags) over titles, descriptions and image bytes |
 | `graphicast/state.py` | `state.json` load/save (kept on the `state` branch) |
 | `graphicast/severity.py` | Severe-weather flag: SPC outlook and alert parsing, point-in-polygon, keyword mentions |
+| `graphicast/weather.py` | Weather widget data: api.weather.gov conditions, icon mapping, sunrise/sunset |
+| `graphicast/widget.py` | Weather widget HTML and plain-text line |
 | `graphicast/images.py` | PNG → JPEG conversion (Pillow) |
 | `graphicast/publish.py` | Commit images to the `images` branch, prune old folders, push |
 | `graphicast/render.py` | Email HTML and plain text |

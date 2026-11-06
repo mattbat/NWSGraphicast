@@ -40,6 +40,8 @@ class Config:
     lon: float = DEFAULT_LON
     place_name: str = DEFAULT_PLACE_NAME  # named in the SPC banner line
     severity: bool = True  # False when GRAPHICAST_SEVERITY=off
+    asset_base_url: str | None = None  # public URL prefix of assets/icons (widget icons)
+    widget: bool = True  # False when GRAPHICAST_WIDGET=off
 
     @property
     def hosted(self) -> bool:
@@ -109,6 +111,8 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         lon=_parse_coord(env, "GRAPHICAST_LON", DEFAULT_LON, 180),
         place_name=_opt(env, "GRAPHICAST_PLACE_NAME") or DEFAULT_PLACE_NAME,
         severity=(_opt(env, "GRAPHICAST_SEVERITY") or "").lower() != "off",
+        asset_base_url=_opt(env, "GRAPHICAST_ASSET_BASE_URL"),
+        widget=(_opt(env, "GRAPHICAST_WIDGET") or "").lower() != "off",
     )
 
 

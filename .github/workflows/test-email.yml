@@ -41,5 +41,6 @@ jobs:
           GRAPHICAST_STATE: ${{ runner.temp }}/test-state.json
           GRAPHICAST_IMAGES_DIR: images
           GRAPHICAST_IMAGES_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/images
+          GRAPHICAST_ASSET_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/assets/icons
           GRAPHICAST_SUBJECT_PREFIX: "[TEST]"
         run: python -m graphicast --force -v

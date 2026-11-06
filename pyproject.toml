@@ -25,6 +25,7 @@ markers = ["live: hits real network; run with GRAPHICAST_LIVE=1"]
 [tool.ruff.lint.per-file-ignores]
 # Long lines are inherent to the inline-styled HTML email templates.
 "graphicast/render.py" = ["E501"]
+"graphicast/widget.py" = ["E501"]
 "docs/email_mockup.py" = ["E501"]
 "docs/layout_mockup.py" = ["E501"]
 "docs/widget_mockup.py" = ["E501", "E701", "E702", "E731", "E401", "E402", "I001"]

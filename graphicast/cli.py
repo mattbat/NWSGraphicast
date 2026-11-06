@@ -15,6 +15,9 @@ Slot run (first run in a slot, or --force / --ignore-schedule), steps 1-6:
 4. Add keyword mentions from the active graphics to the severity result.
 5. If the fingerprint changed, a severity rise was detected, or with --force, convert the
    images to JPEG, publish them (hosted mode) or embed them (inline mode), and send the email.
+   The weather widget (api.weather.gov conditions for the point) is fetched just before an email
+   is rendered (a send or --dry-run), never in a watch run that sends nothing; a failure only
+   means the email has no widget.
 6. Save state: the processed slot, after a send the new fingerprint and per-graphic hashes
    (used to tag changed graphics NEW), and the severity baseline whenever it was assessed ok.
 
@@ -49,6 +52,7 @@ from graphicast.severity import (
 )
 from graphicast.sources import AllSourcesFailed, fetch_graphics
 from graphicast.state import load_state, save_state
+from graphicast.weather import Conditions, fetch_conditions
 
 log = logging.getLogger("graphicast")
 
@@ -98,6 +102,7 @@ def _write_dry_run(
     now: datetime,
     new_numbers: frozenset[int],
     severity: Severity | None = None,
+    conditions: Conditions | None = None,
 ) -> None:
     """Write the email (.eml), a self-contained HTML preview and the converted images."""
     jpegs = {url: data for url, (data, _ext) in converted.items()}
@@ -113,6 +118,8 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        conditions=conditions,
+        asset_base_url=cfg.asset_base_url,
     )
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -131,6 +138,7 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        conditions=conditions,
     )
     (out / "email.html").write_text(preview, encoding="utf-8")
     log.info("wrote %s, %s and %s", out / "email.eml", out / "email.html", images_dir)
@@ -201,10 +209,14 @@ def _pipeline(
         send_it, outcome = False, "no change"
 
     converted = convert_all(images) if active else {}
+    # The weather widget is fetched only when an email is about to be rendered.
+    conditions = None
+    if cfg.widget and active and (send_it or args.dry_run):
+        conditions = fetch_conditions(cfg.lat, cfg.lon, cfg.place_name, cfg.tz, now, get)
 
     if args.dry_run:
         if active:
-            _write_dry_run(args.out, cfg, active, converted, now, new_numbers, severity)
+            _write_dry_run(args.out, cfg, active, converted, now, new_numbers, severity, conditions)
             outcome = f"{len(active)} graphics (source={source})"
         log.info("result: dry-run, %s", outcome)
         return 0
@@ -244,6 +256,8 @@ def _pipeline(
             image_days=cfg.image_days if hosted_urls is not None else None,
             severity=severity,
             place_name=cfg.place_name,
+            conditions=conditions,
+            asset_base_url=cfg.asset_base_url,
         )
         if cfg.subject_prefix:
             msg.replace_header("Subject", f"{cfg.subject_prefix} {msg['Subject']}")

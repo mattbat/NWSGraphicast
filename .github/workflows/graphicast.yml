@@ -54,6 +54,7 @@ jobs:
           GRAPHICAST_STATE: state/state.json
           GRAPHICAST_IMAGES_DIR: images
           GRAPHICAST_IMAGES_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/images
+          GRAPHICAST_ASSET_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/assets/icons
         run: |
           args=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then args="--ignore-schedule"; fi

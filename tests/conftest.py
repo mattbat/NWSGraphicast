@@ -11,7 +11,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture
-def FIXTURE_NOW() -> datetime:  # noqa: N802
+def FIXTURE_NOW() -> datetime:
     return datetime.fromtimestamp(1793968439, tz=UTC)
 
 

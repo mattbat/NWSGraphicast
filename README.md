@@ -1,8 +1,9 @@
 # NWSGraphicast
 
 NWSGraphicast emails you the current National Weather Service "Graphicast" forecast images for a
-forecast office (default: Norman, OK, `oun`). In scheduled runs the images are hosted on an `images` branch and linked from the email (about
-10 KB per email); it is sent only when the set of active graphics has changed since the last email.
+forecast office (default: Norman, OK, `oun`). An email goes out only when the set of active
+graphics has changed since the last one. The images are hosted on an `images` branch and linked,
+so each email is only a few KB.
 
 ## How it runs
 
@@ -47,10 +48,20 @@ GRAPHICAST_LIVE=1 pytest -m live -q              # opt-in: fetch the real feeds
 The live test hits the real Mesonet and NWS feeds and is skipped unless `GRAPHICAST_LIVE=1`.
 CI runs it weekly (Mondays) and on manual dispatch to catch feed format changes early.
 
-A dry run writes `out/email.eml`, `out/email.html` and the converted JPEGs in `out/images/`, and
-sends nothing. Other flags: `--force`,
-`--ignore-schedule`, `--state PATH`, `--out DIR`, `-v`. Exit codes: 0 success (including skip and
-no change), 1 all sources or SMTP failed, 2 bad configuration.
+A dry run writes `out/email.eml`, `out/email.html` (a self-contained preview) and the converted
+images in `out/images/`. It sends nothing, publishes nothing and doesn't save state.
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Render to `out/` only |
+| `--force` | Send even if nothing changed (also skips the schedule gate) |
+| `--ignore-schedule` | Run now regardless of the 6/12/18 send slots |
+| `--state PATH` | State file to use instead of `GRAPHICAST_STATE` |
+| `--out DIR` | Dry-run output directory (default `out`) |
+| `-v` | Debug logging |
+
+Exit codes: 0 success (including skip and no change), 1 fetch, publish or send failed, 2 bad
+configuration.
 
 ## Configuration
 
@@ -73,6 +84,25 @@ Graphics are fetched from the Oklahoma Mesonet JSON API first, then from the NWS
 (`weather.gov/source/<office>/graphicast/graphicast.xml`) if that fails. Only graphics active at
 the current time are used. If both sources fail, or sending fails, the run fails: you will see a
 red run in Actions and GitHub sends its usual workflow failure email.
+
+## Code layout
+
+| Path | Purpose |
+|------|---------|
+| `graphicast/cli.py` | Entry point; the run sequence is documented at the top of the file |
+| `graphicast/schedule.py` | 6/12/18 local send-slot gate, DST-aware |
+| `graphicast/sources/` | Mesonet JSON and NWS XML parsers, plus the fallback logic |
+| `graphicast/model.py` | `Graphic` dataclass and the "active now" filter |
+| `graphicast/fingerprint.py` | Change detection over titles, descriptions and image bytes |
+| `graphicast/state.py` | `state.json` load/save (kept on the `state` branch) |
+| `graphicast/images.py` | PNG → JPEG conversion (Pillow) |
+| `graphicast/publish.py` | Commit images to the `images` branch, prune old folders, push |
+| `graphicast/render.py` | Email HTML and plain text |
+| `graphicast/notify/email.py` | SMTP send |
+| `graphicast/config.py` | Environment variable configuration |
+| `graphicast/http.py` | The HTTP helpers, injectable in tests |
+| `tests/` | Unit tests (no network) and an opt-in live test; `tests/fixtures/` holds real feed snapshots |
+| `docs/` | The original [plan](docs/PLAN.md) and [implementation spec](docs/IMPLEMENTATION.md) |
 
 ## License
 

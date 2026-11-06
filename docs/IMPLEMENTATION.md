@@ -1,7 +1,17 @@
 # NWSGraphicast v2 — Implementation Spec
 
-This is the build spec for the rewrite agreed in `PLAN.md`. It's written so that an implementer
-with no other context can follow it. If this file and `PLAN.md` disagree, **this file wins**.
+This is the build spec for the rewrite agreed in [`PLAN.md`](PLAN.md). It's written so that an
+implementer with no other context can follow it. If this file and `PLAN.md` disagree, **this file
+wins**.
+
+> **Status (2026-11-06): implemented.** The code and the [README](../README.md) describe
+> current behaviour. Where sections 1–9 below differ from the code, it's because §10 changed it:
+> - **§10 supersedes §4.7 image embedding.** Scheduled sends publish JPEGs to the `images`
+>   branch and link them. Only local runs ("inline mode") embed images, and they embed JPEGs.
+> - **Pillow is the one runtime dependency**, an exception to "standard library only".
+> - The file layout also has `graphicast/images.py` and `graphicast/publish.py`.
+> - The YAML in §6 is the original. The live `.github/workflows/graphicast.yml` adds
+>   `pip install .` and an `images` branch checkout (§10.6).
 
 **Rules for implementers**
 - Work only on branch `claude/eloquent-sagan-has6f5`. Never touch `master`.

@@ -98,7 +98,7 @@ def test_mesonet_entry_not_object() -> None:
 
 
 def test_mesonet_invalid_json() -> None:
-    with pytest.raises(ValueError):  # noqa: PT011
+    with pytest.raises(ValueError):
         mesonet.parse("not json")
 
 

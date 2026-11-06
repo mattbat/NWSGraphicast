@@ -1,4 +1,4 @@
-"""SMTP delivery."""
+"""Send an email over SMTP with implicit TLS (Gmail with an App Password by default)."""
 
 from __future__ import annotations
 

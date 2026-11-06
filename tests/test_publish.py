@@ -23,7 +23,7 @@ def sh(*args: str, cwd: Path) -> str:
     ).stdout.strip()
 
 
-def make_git(repo: Path):
+def make_git():
     """git wrapper that supplies a committer identity so tests work in CI."""
 
     def git(*args: str, cwd: Path) -> str:
@@ -47,7 +47,7 @@ def graphic(n: int) -> Graphic:
     return Graphic(n, n, f"T{n}", None, f"https://nws/{n}.png", NOW, NOW)
 
 
-def call(work, *, check_url=lambda u: True, sleeps=None, graphics=None, converted=None, **kw):
+def call(work, *, check_url=lambda _url: True, sleeps=None, graphics=None, converted=None, **kw):
     graphics = graphics or [graphic(1), graphic(2)]
     converted = converted or {
         g.image_url: (b"\xff\xd8" + str(g.number).encode(), "jpg") for g in graphics
@@ -58,7 +58,7 @@ def call(work, *, check_url=lambda u: True, sleeps=None, graphics=None, converte
         graphics=graphics,
         converted=converted,
         now=NOW,
-        git=make_git(work),
+        git=make_git(),
         check_url=check_url,
         sleep=(sleeps.append if sleeps is not None else (lambda s: None)),
         **kw,
@@ -103,8 +103,8 @@ def test_second_publish_replaces_history_and_prunes(repos):
         graphics=[graphic(1)],
         converted={"https://nws/1.png": (b"\xff\xd8z", "jpg")},
         now=later,
-        git=make_git(work),
-        check_url=lambda u: True,
+        git=make_git(),
+        check_url=lambda _url: True,
     )
     assert len(sh("rev-list", "images", cwd=origin).split()) == 1
     files = sh("ls-tree", "-r", "--name-only", "images", cwd=origin).split()

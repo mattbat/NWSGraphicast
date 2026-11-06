@@ -1,8 +1,14 @@
 # NWSGraphicast — Modernization Plan
 
-Status: **planning only**. No code has changed. This file lives on branch
-`claude/eloquent-sagan-has6f5` and must not be merged to `main`/`master` until the
-rewrite is agreed.
+> **Status (2026-11-06): historical planning notes.** Phases 1–2 are built. For how the
+> code works today, read the [README](../README.md). The build spec is in
+> [IMPLEMENTATION.md](IMPLEMENTATION.md).
+>
+> Changed since these notes were written:
+> - Images are **no longer embedded or hot-linked**. They're converted to JPEG and hosted on
+>   an expiring `images` branch (IMPLEMENTATION.md §10).
+> - ntfy, the NWS alerts integration and the history archive were dropped.
+> - The PWA + Web Push idea (§10 below) is still open as phase 3.
 
 ---
 
@@ -130,21 +136,21 @@ Behaviour changes:
 ## 6. Task list
 
 Phase 0 — decisions (see open questions)
-- [ ] Answer open questions below
+- [x] Answer open questions below
 
 Phase 1 — rewrite, email parity
-- [ ] Scaffold package, `pyproject.toml`, ruff, pytest
-- [ ] Source interface: Mesonet (primary) + NWS XML (fallback), saved fixtures, fail loudly if all sources fail
-- [ ] Active-window filter + content fingerprint (incl. image hashes)
-- [ ] State store (JSON) + change detection; per-office fan-out
-- [ ] Email renderer (HTML + text) with CID-embedded images
-- [ ] SMTP sender using env secrets; `--dry-run`, `--force`
-- [ ] Config file replacing Google Sheet; delete gspread/oauth2client code
-- [ ] Rewrite README (setup, secrets, App Password, local run)
+- [x] Scaffold package, `pyproject.toml`, ruff, pytest
+- [x] Source interface: Mesonet (primary) + NWS XML (fallback), saved fixtures, fail loudly if all sources fail
+- [x] Active-window filter + content fingerprint (incl. image hashes)
+- [x] State store (JSON) + change detection; per-office fan-out
+- [x] Email renderer (HTML + text) with CID-embedded images
+- [x] SMTP sender using env secrets; `--dry-run`, `--force`
+- [x] Config file replacing Google Sheet; delete gspread/oauth2client code
+- [x] Rewrite README (setup, secrets, App Password, local run)
 
 Phase 2 — move off the Pi
-- [ ] Workflow: schedule + `workflow_dispatch(force)`; state committed to `state` branch
-- [ ] Concurrency guard so overlapping runs don't race on state
+- [x] Workflow: schedule + `workflow_dispatch(force)`; state committed to `state` branch
+- [x] Concurrency guard so overlapping runs don't race on state
 - [ ] Run in parallel with the Pi for a few days, compare emails, then remove the cron job
 
 Phase 3 — extras (as chosen)

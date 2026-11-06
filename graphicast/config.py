@@ -1,4 +1,4 @@
-"""Environment-based configuration."""
+"""Configuration from environment variables (see the README table). Secrets never live in files."""
 
 from __future__ import annotations
 
@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from graphicast.schedule import DEFAULT_HOURS, DEFAULT_TZ
+
+DEFAULT_OFFICE = "oun"
+DEFAULT_STATE_PATH = "state/state.json"
+DEFAULT_IMAGE_DAYS = 7
 
 
 class ConfigError(Exception):
@@ -25,10 +29,11 @@ class Config:
     email_to: str | None
     images_dir: Path | None = None
     images_base_url: str | None = None
-    image_days: int = 7
+    image_days: int = DEFAULT_IMAGE_DAYS
 
     @property
     def hosted(self) -> bool:
+        """True when images are published to the images branch and linked, not embedded."""
         return self.images_dir is not None and self.images_base_url is not None
 
 
@@ -51,7 +56,7 @@ def _parse_hours(raw: str | None) -> tuple[int, ...]:
 
 def _parse_days(raw: str | None) -> int:
     if raw is None:
-        return 7
+        return DEFAULT_IMAGE_DAYS
     try:
         days = int(raw)
     except ValueError:
@@ -65,10 +70,10 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
     smtp_user = _opt(env, "SMTP_USER")
     images_dir = _opt(env, "GRAPHICAST_IMAGES_DIR")
     return Config(
-        office=(_opt(env, "GRAPHICAST_OFFICE") or "oun").lower(),
+        office=(_opt(env, "GRAPHICAST_OFFICE") or DEFAULT_OFFICE).lower(),
         tz=_opt(env, "GRAPHICAST_TZ") or DEFAULT_TZ,
         hours=_parse_hours(_opt(env, "GRAPHICAST_HOURS")),
-        state_path=Path(_opt(env, "GRAPHICAST_STATE") or "state/state.json"),
+        state_path=Path(_opt(env, "GRAPHICAST_STATE") or DEFAULT_STATE_PATH),
         smtp_user=smtp_user,
         smtp_password=_opt(env, "SMTP_PASSWORD"),
         email_to=_opt(env, "EMAIL_TO") or smtp_user,
@@ -79,6 +84,7 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
 
 
 def require_smtp(cfg: Config) -> None:
+    """Raise ConfigError naming any missing SMTP variable. Only called when sending."""
     missing = [
         name
         for name, value in (

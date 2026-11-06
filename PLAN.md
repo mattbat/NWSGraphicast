@@ -160,9 +160,9 @@ Phase 3 — extras (as chosen)
 | Recipients | Just the owner. One office: **OUN (Norman)**. No signup and no zip lookup; office and recipient set in config/secrets |
 | Sending | **Gmail SMTP + App Password** (free, same as today). Secrets: `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_TO` |
 | Repo | **Public**: nothing personal in committed files; email address lives in a secret |
-| Cadence | **3×/day**, email only when the active graphics changed. Exact times TBD; must handle Central time DST since cron is UTC |
+| Cadence | **6am, 12pm, 6pm Central**, email **only when the active graphics changed** |
 | Image size | One size only (`FullImage`; NWS serves the same file for both today). Drop the option |
-| Phone | iPhone. ntfy is an optional extra, not a requirement |
+| Phone | iPhone. **No ntfy.** Keep a **PWA with Web Push** as a phase 3 option |
 | Archive | No |
 | Language | Python |
 | Other Pi duties | None. Turn off the Pi cron once the Actions version is verified |
@@ -170,8 +170,39 @@ Phase 3 — extras (as chosen)
 Dropped from scope: Google Sheets, gspread/oauth2client, zip→office lookup, multi-subscriber
 fan-out, history archive, multi-user Web Push.
 
-## 8. Remaining open questions
+## 8. Scheduling detail (DST)
 
-1. Exact send times (Central)? Suggestion: ~6:30am, 12:30pm, 5:30pm.
-2. Email only on change (current behaviour), or always send at those times?
-3. Want ntfy push in phase 1, later, or never?
+GitHub cron is UTC-only. 6am/12pm/6pm Central is 11/17/23 UTC in summer (CDT) and
+12/18/00 UTC in winter (CST). The workflow schedules **both** sets of hours. The script
+checks the hour in `America/Chicago` and exits at once unless it's 6, 12 or 18, so only
+the correct run does anything. Scheduled runs can start 5–30+ min late, so the check is
+on the hour, not the exact minute. Each skipped run takes a few seconds.
+
+## 9. GitHub Actions limits (checked 2026-11-06)
+
+- Public repo + standard GitHub-hosted runner = **free, with no minute cap**.
+- If the repo ever went private: the Free plan includes 2,000 min/month, **per account**,
+  shared across all private repos. Estimated use is ~6 runs/day × <1 min ≈ 100–180 min/month.
+- Other limits, none of which this project gets near: 6 h max per job; 20 concurrent jobs
+  per account (Free); 10 GB of cache per repo; schedules every 5 min at most often; **scheduled workflows
+  are disabled after 60 days without repo activity (per repo)**. That last one is the
+  only one that matters here, so add a monthly keepalive or rely on state commits. Verify
+  which of the two counts as activity.
+
+## 10. PWA + Web Push on iPhone (phase 3 sketch)
+
+- Static page on **GitHub Pages** (free for public repos), rebuilt by the workflow to show
+  the current OUN graphics.
+- iOS 16.4+: open it in Safari → Share → Add to Home Screen → open from the icon → tap
+  "Enable notifications". (iOS allows Web Push only from Home Screen apps.)
+- The page shows its push subscription (a JSON blob). Paste it into a repo secret
+  `PUSH_SUBSCRIPTION`. With `VAPID_PRIVATE_KEY` (also a secret), the workflow sends the push
+  with `pywebpush` when graphics change. Tapping the notification opens the page.
+- No server or database: one user means one subscription in a secret. Downside: if iOS
+  drops the subscription (reinstall, long inactivity), you re-copy it. The page can detect
+  and show this.
+- Email stays the main channel. Push goes through the same `notify/` interface.
+
+## 11. Remaining open questions
+
+None blocking. Ready to implement phase 1–2 when approved.

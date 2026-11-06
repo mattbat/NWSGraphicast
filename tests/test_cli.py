@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import io
 import json
 import urllib.error
 from datetime import UTC, datetime
+
+from PIL import Image
 
 from graphicast import cli
 from graphicast.fingerprint import EMPTY_FINGERPRINT
 from graphicast.sources import mesonet, nws_xml
 
-PNG = b"\x89PNG\r\n\x1a\n" + b"x"
+
+def make_png(color=(10, 120, 200)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+PNG = make_png()
 ENV = {"SMTP_USER": "me@example.com", "SMTP_PASSWORD": "pw"}
 MES = mesonet.URL.format(office="oun")
 NWS = nws_xml.URL.format(office="oun")
@@ -64,6 +74,9 @@ def test_first_run_sends_and_saves_state(tmp_path, fake_get, mesonet_text, nws_t
     assert (user, pw) == ("me@example.com", "pw")
     assert msg["To"] == "me@example.com"
     assert n_images(msg) == 3
+    assert {p.get_content_type() for p in msg.walk() if p.get_content_maintype() == "image"} == {
+        "image/jpeg"
+    }
     data = json.loads(state.read_text())
     assert data["offices"]["oun"]["sent_at"] == FIXTURE_NOW.isoformat()
     assert data["last_slot"] is None
@@ -112,8 +125,10 @@ def test_dry_run(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
     assert (out / "email.eml").read_bytes().startswith(b"Content-Type") or (
         out / "email.eml"
     ).exists()
-    assert "data:image/png;base64," in (out / "email.html").read_text()
+    assert "data:image/jpeg;base64," in (out / "email.html").read_text()
     assert "Friday Morning Fog" in (out / "email.html").read_text()
+    jpgs = sorted((out / "images").glob("*.jpg"))
+    assert len(jpgs) == 3 and all(p.read_bytes().startswith(b"\xff\xd8") for p in jpgs)
     assert send.msgs == [] and not state.exists()
 
 
@@ -223,3 +238,69 @@ def test_default_env_and_now(monkeypatch, tmp_path, fake_get, mesonet_text, nws_
     monkeypatch.delenv("SMTP_USER", raising=False)
     argv = ["--ignore-schedule", "--dry-run", "--out", str(out), "--state", str(state)]
     assert cli.main(argv, get=get) == 0
+
+
+HOSTED_ENV = {
+    **ENV,
+    "GRAPHICAST_IMAGES_DIR": "imgdir",
+    "GRAPHICAST_IMAGES_BASE_URL": "https://img.example/images",
+}
+
+
+class Recorder:
+    """Records call order across publish and send."""
+
+    def __init__(self, fail=False):
+        self.calls = []
+        self.fail = fail
+        self.kwargs = None
+
+    def publish(self, **kwargs):
+        self.calls.append("publish")
+        self.kwargs = kwargs
+        if self.fail:
+            raise RuntimeError("git push failed")
+        return {
+            g.image_url: f"https://img.example/images/f/{g.number}.jpg" for g in kwargs["graphics"]
+        }
+
+    def send(self, msg, *, user, password):
+        self.calls.append("send")
+        self.msg = msg
+
+
+def hosted_run(state, get, rec, now, env=HOSTED_ENV):
+    argv = ["--ignore-schedule", "--state", str(state)]
+    return cli.main(argv, now=now, get=get, send=rec.send, publish=rec.publish, env=env)
+
+
+def test_hosted_publishes_before_send(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    rec = Recorder()
+    assert hosted_run(state, get, rec, FIXTURE_NOW) == 0
+    assert rec.calls == ["publish", "send"]
+    assert rec.kwargs["base_url"] == "https://img.example/images"
+    assert rec.kwargs["retention_days"] == 7
+    assert all(ext == "jpg" for _, ext in rec.kwargs["converted"].values())
+    assert n_images(rec.msg) == 0
+    html = rec.msg.get_body(preferencelist=("html",)).get_content()
+    assert html.count("https://img.example/images/f/") == 3
+    assert len(rec.msg.as_bytes()) < 50_000
+    assert json.loads(state.read_text())["offices"]["oun"]["sent_at"]
+
+
+def test_hosted_publish_failure_exit_1(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    rec = Recorder(fail=True)
+    assert hosted_run(state, get, rec, FIXTURE_NOW) == 1
+    assert rec.calls == ["publish"] and not state.exists()
+
+
+def test_inline_mode_when_only_one_hosting_var(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
+    rec = Recorder()
+    env = {**ENV, "GRAPHICAST_IMAGES_DIR": "imgdir"}
+    assert hosted_run(state, get, rec, FIXTURE_NOW, env=env) == 0
+    assert rec.calls == ["send"] and n_images(rec.msg) == 3

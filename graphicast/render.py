@@ -1,4 +1,4 @@
-"""Render the graphicast email (plain text + HTML with inline CID images)."""
+"""Render the graphicast email (plain text + HTML with hosted or inline CID images)."""
 
 from __future__ import annotations
 
@@ -37,13 +37,17 @@ def format_subject(office: str, now: datetime, tz: str) -> str:
     return f"NWS {office.upper()} Graphicast — {local:%a %b} {local.day}, {hour}:{local:%M %p}"
 
 
-def _render_plain(office: str, graphics: list[Graphic]) -> str:
+def _render_plain(
+    office: str, graphics: list[Graphic], hosted_urls: dict[str, str] | None = None
+) -> str:
     blocks = []
     for g in graphics:
         lines = [g.title]
         if g.description:
             lines.append(g.description)
-        lines.append(g.image_url)
+        if hosted_urls and g.image_url in hosted_urls:
+            lines.append(hosted_urls[g.image_url])
+        lines.append(f"Current version on weather.gov: {g.image_url}")
         blocks.append("\n".join(lines))
     footer = f"NWS {office.upper()}: {office_url(office)}\nStorm Prediction Center: {SPC_URL}"
     return "\n\n".join([*blocks, footer]) + "\n"
@@ -62,7 +66,11 @@ def _render_html(office: str, graphics: list[Graphic], src_for: Callable[[Graphi
             parts.append(f'<p style="margin:4px 0 8px">{escape(g.description)}</p>')
         parts.append(
             f'<img src="{escape(src_for(g), quote=True)}" alt="{escape(g.title, quote=True)}" '
-            'style="max-width:100%;height:auto">'
+            'width="100%" style="max-width:100%;height:auto">'
+        )
+        parts.append(
+            '<p style="margin:2px 0 8px;font-size:12px">'
+            f'<a href="{escape(g.image_url, quote=True)}">Current version on weather.gov</a></p>'
         )
     parts.append(
         '<p style="margin-top:24px;font-size:12px;color:#555">'
@@ -81,6 +89,7 @@ def render_email(
     tz: str,
     sender: str,
     to: str,
+    hosted_urls: dict[str, str] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = format_subject(office, now, tz)
@@ -89,14 +98,16 @@ def render_email(
     msg["Date"] = email.utils.format_datetime(now)
     cids: dict[str, str] = {}
     for g in graphics:
-        if g.image_url in images and g.image_url not in cids:
+        if hosted_urls is None and g.image_url in images and g.image_url not in cids:
             cids[g.image_url] = make_msgid()
 
     def src(g: Graphic) -> str:
+        if hosted_urls and g.image_url in hosted_urls:
+            return hosted_urls[g.image_url]
         cid = cids.get(g.image_url)
         return f"cid:{cid[1:-1]}" if cid else g.image_url
 
-    msg.set_content(_render_plain(office, graphics))
+    msg.set_content(_render_plain(office, graphics, hosted_urls))
     msg.add_alternative(_render_html(office, graphics, src), subtype="html")
     html_part = msg.get_payload()[1]
     for url, cid in cids.items():

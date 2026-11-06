@@ -134,6 +134,31 @@ def test_gif_loop_and_octet_stream_parts():
     assert "application/octet-stream" in types
 
 
+def test_hosted_mode_no_attachments():
+    a, b = g(1), g(2, url="https://x/2.png")
+    hosted = {a.image_url: "https://h/f/1.jpg", b.image_url: "https://h/f/2.jpg"}
+    msg = render([a, b], {a.image_url: PNG, b.image_url: PNG}, hosted_urls=hosted)
+    assert [p for p in msg.walk() if p.get_content_maintype() == "image"] == []
+    assert [p.get_content_type() for p in msg.iter_parts()] == ["text/plain", "text/html"]
+    html = html_of(msg)
+    assert 'src="https://h/f/1.jpg"' in html and 'src="https://h/f/2.jpg"' in html
+    assert "cid:" not in html and 'width="100%"' in html
+    assert 'href="https://x/1.png">Current version on weather.gov' in html
+    text = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "https://h/f/1.jpg" in text and "https://x/1.png" in text
+    assert len(msg.as_bytes()) < 50_000
+
+
+def test_hosted_mode_unhosted_graphic_links_nws_url():
+    a, b = g(1), g(2, url="https://x/2.png")
+    msg = render([a, b], {}, hosted_urls={a.image_url: "https://h/f/1.jpg"})
+    assert 'src="https://x/2.png"' in html_of(msg)
+
+
+def test_nws_link_in_inline_mode():
+    assert 'href="https://x/1.png">Current version' in html_of(render([g()], {}))
+
+
 def test_same_url_shared_cid():
     a, b = g(1), g(2)
     msg = render([a, b], {a.image_url: PNG})

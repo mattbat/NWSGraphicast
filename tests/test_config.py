@@ -43,3 +43,25 @@ def test_require_smtp():
     bad = Config("oun", "UTC", (6,), Path("s"), None, None, None)
     with pytest.raises(ConfigError, match="SMTP_USER.*SMTP_PASSWORD.*EMAIL_TO"):
         require_smtp(bad)
+
+
+def test_image_hosting_defaults_and_hosted_property():
+    cfg = load_config({})
+    assert cfg.images_dir is None and cfg.images_base_url is None and cfg.image_days == 7
+    assert not cfg.hosted
+    only_dir = load_config({"GRAPHICAST_IMAGES_DIR": "images"})
+    assert only_dir.images_dir == Path("images") and not only_dir.hosted
+    both = load_config(
+        {
+            "GRAPHICAST_IMAGES_DIR": "images",
+            "GRAPHICAST_IMAGES_BASE_URL": "https://x/y",
+            "GRAPHICAST_IMAGE_DAYS": "3",
+        }
+    )
+    assert both.hosted and both.images_base_url == "https://x/y" and both.image_days == 3
+
+
+@pytest.mark.parametrize("raw", ["0", "-2", "x"])
+def test_bad_image_days(raw):
+    with pytest.raises(ConfigError, match="GRAPHICAST_IMAGE_DAYS"):
+        load_config({"GRAPHICAST_IMAGE_DAYS": raw})

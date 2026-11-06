@@ -2,7 +2,7 @@
 name = "graphicast"
 version = "2.0.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Pillow>=10"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]

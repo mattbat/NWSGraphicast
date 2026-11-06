@@ -12,8 +12,10 @@ from pathlib import Path
 from graphicast import http
 from graphicast.config import ConfigError, load_config, require_smtp
 from graphicast.fingerprint import EMPTY_FINGERPRINT, fingerprint
+from graphicast.images import convert_all
 from graphicast.model import Graphic, active_graphics
 from graphicast.notify.email import send_email
+from graphicast.publish import publish_images
 from graphicast.render import render_email, render_html_preview
 from graphicast.schedule import should_run
 from graphicast.sources import AllSourcesFailed, fetch_graphics
@@ -51,6 +53,7 @@ def main(
     now: datetime | None = None,
     get: Callable[..., bytes] = http.get_bytes,
     send: Callable[..., None] = send_email,
+    publish: Callable[..., dict[str, str]] = publish_images,
     env: Mapping[str, str] | None = None,
 ) -> int:
     args = _parser().parse_args(argv)
@@ -99,21 +102,27 @@ def main(
         send_it, outcome = True, ""
 
     if args.dry_run and active:
+        converted = convert_all(images)
+        previews = {url: data for url, (data, _) in converted.items()}
         msg = render_email(
             office=cfg.office,
             graphics=active,
-            images=images,
+            images=previews,
             now=now,
             tz=cfg.tz,
             sender=cfg.smtp_user or "graphicast@example.invalid",
             to=cfg.email_to or "recipient@example.invalid",
         )
-        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "images").mkdir(parents=True, exist_ok=True)
+        for g in active:
+            if g.image_url in converted:
+                data, ext = converted[g.image_url]
+                (args.out / "images" / f"{g.number}.{ext}").write_bytes(data)
         eml = args.out / "email.eml"
         html_path = args.out / "email.html"
         eml.write_bytes(msg.as_bytes())
         html_path.write_text(
-            render_html_preview(office=cfg.office, graphics=active, images=images),
+            render_html_preview(office=cfg.office, graphics=active, images=previews),
             encoding="utf-8",
         )
         log.info("wrote %s and %s", eml, html_path)
@@ -130,14 +139,30 @@ def main(
         except ConfigError as exc:
             log.error("configuration error: %s", exc)
             return 2
+        converted = convert_all(images)
+        hosted_urls: dict[str, str] | None = None
+        if cfg.hosted:
+            try:
+                hosted_urls = publish(
+                    repo_dir=cfg.images_dir,
+                    base_url=cfg.images_base_url,
+                    graphics=active,
+                    converted=converted,
+                    now=now,
+                    retention_days=cfg.image_days,
+                )
+            except Exception as exc:
+                log.error("publishing images failed: %s", exc)
+                return 1
         msg = render_email(
             office=cfg.office,
             graphics=active,
-            images=images,
+            images={url: data for url, (data, _) in converted.items()},
             now=now,
             tz=cfg.tz,
             sender=cfg.smtp_user or "",
             to=cfg.email_to or "",
+            hosted_urls=hosted_urls,
         )
         try:
             send(msg, user=cfg.smtp_user, password=cfg.smtp_password)

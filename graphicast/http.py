@@ -12,3 +12,13 @@ def get_bytes(url: str, timeout: float = 20.0) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
         return response.read()
+
+
+def head_ok(url: str, timeout: float = 10.0) -> bool:
+    """HTTP HEAD; True on status 200, False on any error."""
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            return response.status == 200
+    except OSError:
+        return False

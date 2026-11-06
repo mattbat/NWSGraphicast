@@ -290,7 +290,8 @@ def test_hosted_publishes_before_send(tmp_path, fake_get, mesonet_text, nws_text
     assert all(ext == "jpg" for _, ext in rec.kwargs["converted"].values())
     assert n_images(rec.msg) == 0
     html = rec.msg.get_body(preferencelist=("html",)).get_content()
-    assert html.count("https://img.example/images/f/") == 3
+    assert html.count('src="https://img.example/images/f/') == 3
+    assert html.count('href="https://img.example/images/f/') == 3
     assert len(rec.msg.as_bytes()) < 50_000
     assert json.loads(state.read_text())["offices"]["oun"]["sent_at"]
 

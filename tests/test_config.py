@@ -108,3 +108,9 @@ def test_widget_and_asset_base_url_config():
     assert cfg.widget is True and cfg.asset_base_url is None
     cfg = load_config({"GRAPHICAST_WIDGET": " Off ", "GRAPHICAST_ASSET_BASE_URL": " https://a/i "})
     assert cfg.widget is False and cfg.asset_base_url == "https://a/i"
+
+
+def test_radar_default_and_override():
+    assert load_config({}).radar == "KTLX"
+    assert load_config({"GRAPHICAST_RADAR": " ktlx "}).radar == "KTLX"
+    assert load_config({"GRAPHICAST_RADAR": "kfdr"}).radar == "KFDR"

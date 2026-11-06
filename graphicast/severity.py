@@ -18,6 +18,7 @@ from graphicast.model import Graphic
 log = logging.getLogger(__name__)
 
 SPC_URL = "https://www.spc.noaa.gov/products/outlook/day{day}otlk_cat.lyr.geojson"
+ALERTS_FALLBACK_URL = "https://alerts.weather.gov"
 ALERTS_URL = "https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
 LEVELS = {
     "MRGL": (1, "Marginal"),
@@ -74,6 +75,7 @@ class Outlook:
 class Alert:
     event: str
     headline: str
+    url: str = ""  # link for the banner; "" renders no link
 
 
 @dataclass(frozen=True)
@@ -147,7 +149,11 @@ def parse_alerts(text: str) -> tuple[Alert, ...]:
             continue
         if not any(k in event for k in ALERT_KEYWORDS):
             continue
-        found.setdefault(event, Alert(event, props.get("headline") or ""))
+        # The feature id (== properties["@id"]) is the api.weather.gov alert URL. It is the only
+        # per-alert link the feed gives; it is JSON, not a rendered page, but it is stable and
+        # identifies the alert. Without it, fall back to the national alerts page.
+        url = feature.get("id") or props.get("@id") or ALERTS_FALLBACK_URL
+        found.setdefault(event, Alert(event, props.get("headline") or "", str(url)))
     return tuple(found.values())
 
 

@@ -16,6 +16,7 @@ DEFAULT_OFFICE_NAME = "Norman"
 DEFAULT_LAT = 35.6528  # Edmond, OK
 DEFAULT_LON = -97.4781
 DEFAULT_PLACE_NAME = "Edmond"
+DEFAULT_RADAR = "KTLX"  # Oklahoma City
 
 
 class ConfigError(Exception):
@@ -42,6 +43,7 @@ class Config:
     severity: bool = True  # False when GRAPHICAST_SEVERITY=off
     asset_base_url: str | None = None  # public URL prefix of assets/icons (widget icons)
     widget: bool = True  # False when GRAPHICAST_WIDGET=off
+    radar: str = DEFAULT_RADAR  # radar station for the Radar link
 
     @property
     def hosted(self) -> bool:
@@ -113,6 +115,7 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         severity=(_opt(env, "GRAPHICAST_SEVERITY") or "").lower() != "off",
         asset_base_url=_opt(env, "GRAPHICAST_ASSET_BASE_URL"),
         widget=(_opt(env, "GRAPHICAST_WIDGET") or "").lower() != "off",
+        radar=(_opt(env, "GRAPHICAST_RADAR") or DEFAULT_RADAR).upper(),
     )
 
 

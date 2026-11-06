@@ -118,6 +118,7 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        radar=cfg.radar,
         conditions=conditions,
         asset_base_url=cfg.asset_base_url,
     )
@@ -138,6 +139,7 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        radar=cfg.radar,
         conditions=conditions,
     )
     (out / "email.html").write_text(preview, encoding="utf-8")
@@ -256,6 +258,7 @@ def _pipeline(
             image_days=cfg.image_days if hosted_urls is not None else None,
             severity=severity,
             place_name=cfg.place_name,
+            radar=cfg.radar,
             conditions=conditions,
             asset_base_url=cfg.asset_base_url,
         )

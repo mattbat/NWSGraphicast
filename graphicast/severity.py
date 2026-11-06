@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from graphicast.model import Graphic
@@ -174,11 +174,10 @@ def find_mentions(graphics: Iterable[Graphic]) -> tuple[str, ...]:
     return tuple(labels)
 
 
-def assess(
-    graphics: Iterable[Graphic], lat: float, lon: float, get: Callable[..., bytes]
-) -> Severity:
-    """Fetch SPC days 1-3 and active alerts for the point. Never raises; failures log a
-    warning and set ok=False while the other sources are still used."""
+def assess_official(lat: float, lon: float, get: Callable[..., bytes]) -> Severity:
+    """Fetch only the official sources (SPC days 1-3 and active alerts) for the point, with no
+    keyword mentions. Never raises; failures log a warning and set ok=False while the other
+    sources are still used."""
     ok = True
     outlooks: list[Outlook] = []
     for day in OUTLOOK_DAYS:
@@ -197,7 +196,19 @@ def assess(
     except Exception as exc:
         log.warning("active alerts fetch failed: %s", exc)
         ok = False
-    return Severity(tuple(outlooks), alerts, find_mentions(graphics), ok)
+    return Severity(tuple(outlooks), alerts, (), ok)
+
+
+def with_mentions(sev: Severity, graphics: Iterable[Graphic]) -> Severity:
+    """`sev` with keyword mentions computed from the graphics."""
+    return replace(sev, mentions=find_mentions(graphics))
+
+
+def assess(
+    graphics: Iterable[Graphic], lat: float, lon: float, get: Callable[..., bytes]
+) -> Severity:
+    """Official sources plus keyword mentions from the graphics. Never raises."""
+    return with_mentions(assess_official(lat, lon, get), graphics)
 
 
 def snapshot(sev: Severity) -> dict:

@@ -7,10 +7,21 @@ so each email is only a few KB.
 
 ## How it runs
 
-A GitHub Actions workflow (`.github/workflows/graphicast.yml`) runs the Python package on a
-schedule. Emails go out at 6am, 12pm and 6pm Central time, and only when something changed. The
-cron fires at both the CDT and CST UTC hours; `graphicast/schedule.py` makes sure only the first
-run in each slot does any work. The last sent state is kept on a `state` git branch.
+A GitHub Actions workflow (`.github/workflows/graphicast.yml`) runs the Python package **every
+15 minutes**, and `graphicast/schedule.py` decides what each run does:
+
+- **Send run:** the first run in each 6am / 12pm / 6pm Central slot fetches the graphics and
+  emails them if they changed (or if the severe-weather risk rose).
+- **Watch run:** every other run only fetches the Storm Prediction Center outlooks and active
+  alerts (no graphics). If the risk did not rise, it records the snapshot and exits. If it rose,
+  it fetches the graphics and sends an email **at any hour, overnight included**. A watch run
+  never uses up a send slot.
+
+Graphics-change emails still happen only at the slots. The last sent state is kept on a `state`
+git branch; it is committed only when it changed, so quiet watch runs add no commits. GitHub can
+delay or skip scheduled runs under load, so a 15-minute check is not a real-time alarm: keep your
+phone's emergency alerts on for short-lived warnings. With `GRAPHICAST_SEVERITY=off`, runs
+outside a slot skip immediately.
 
 ## Image hosting
 
@@ -68,13 +79,14 @@ The live test hits the real Mesonet and NWS feeds and is skipped unless `GRAPHIC
 CI runs it weekly (Mondays) and on manual dispatch to catch feed format changes early.
 
 A dry run writes `out/email.eml`, `out/email.html` (a self-contained preview) and the converted
-images in `out/images/`. It sends nothing, publishes nothing and doesn't save state.
+images in `out/images/`. It sends nothing, publishes nothing and doesn't save state. It works
+in watch runs too (a run with no rise logs `result: watch (...)` and writes nothing).
 
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Render to `out/` only |
 | `--force` | Send even if nothing changed (also skips the schedule gate) |
-| `--ignore-schedule` | Run now regardless of the 6/12/18 send slots |
+| `--ignore-schedule` | Run now as a send run regardless of the 6/12/18 send slots |
 | `--state PATH` | State file to use instead of `GRAPHICAST_STATE` |
 | `--out DIR` | Dry-run output directory (default `out`) |
 | `-v` | Debug logging |
@@ -119,7 +131,7 @@ references are [`docs/layout_mockup.py`](docs/layout_mockup.py) and
 
 ## Severe-weather flag
 
-Each run checks the point set by `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default; it lies in the Norman office's area) against:
+Each send run and watch run checks the point set by `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default; it lies in the Norman office's area) against:
 
 - the Storm Prediction Center categorical convective outlooks for days 1 to 3 (the highest
   category whose area contains the point: Marginal 1, Slight 2, Enhanced 3, Moderate 4, High 5;
@@ -146,7 +158,8 @@ baseline. The baseline is updated on every run where all sources answered, inclu
 send nothing, so a drop followed by a rise emails again. If a source fails, the failure is
 logged, the run carries on, and the previous baseline is kept. Severity is not part of the
 change fingerprint, and a rise with no active graphics sends nothing (there is nothing to show).
-The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
+Watch runs (every 15 minutes between slots) use this same rule, so a rise emails at any
+hour. The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
 
 ## Data sources
 
@@ -160,7 +173,7 @@ red run in Actions and GitHub sends its usual workflow failure email.
 | Path | Purpose |
 |------|---------|
 | `graphicast/cli.py` | Entry point; the run sequence is documented at the top of the file |
-| `graphicast/schedule.py` | 6/12/18 local send-slot gate, DST-aware |
+| `graphicast/schedule.py` | 6/12/18 local send-slot gate (non-slot runs become severity watch runs), DST-aware |
 | `graphicast/sources/` | Mesonet JSON and NWS XML parsers, plus the fallback logic |
 | `graphicast/model.py` | `Graphic` dataclass and the "active now" filter |
 | `graphicast/fingerprint.py` | Change detection (whole set and per graphic, for NEW tags) over titles, descriptions and image bytes |

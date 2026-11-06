@@ -1,11 +1,18 @@
 """Command-line entry point: `python -m graphicast`.
 
-One run does the following:
-1. Schedule gate: skip unless this is the first run in a 6/12/18 local send slot.
+A run is one of two modes. The workflow fires every 15 minutes; the schedule gate decides.
+
+Watch run (any run that is not the first in a 6/12/18 local send slot): with severity on, fetch
+only the SPC outlooks and active alerts. If the risk did not rise, save the snapshot and stop.
+If it rose, continue with steps 2-6 below (reason=severity rose) without consuming the slot.
+With severity off, skip with no fetches.
+
+Slot run (first run in a slot, or --force / --ignore-schedule), steps 1-6:
+1. Assess the official severity sources (SPC outlooks, active alerts for the configured point)
+   unless GRAPHICAST_SEVERITY=off. A failed source never fails the run.
 2. Fetch the office's graphics (Mesonet, falling back to the NWS XML feed).
 3. Keep the graphics active now, download their images, and fingerprint the set.
-4. Assess severe weather for the configured point (SPC outlooks, active alerts, keywords in
-   the graphics) unless GRAPHICAST_SEVERITY=off. A failed source never fails the run.
+4. Add keyword mentions from the active graphics to the severity result.
 5. If the fingerprint changed, a severity rise was detected, or with --force, convert the
    images to JPEG, publish them (hosted mode) or embed them (inline mode), and send the email.
 6. Save state: the processed slot, after a send the new fingerprint and per-graphic hashes
@@ -33,7 +40,13 @@ from graphicast.notify.email import send_email
 from graphicast.publish import publish_images
 from graphicast.render import render_email, render_html_preview
 from graphicast.schedule import should_run
-from graphicast.severity import Severity, assess, severity_rose, snapshot
+from graphicast.severity import (
+    Severity,
+    assess_official,
+    severity_rose,
+    snapshot,
+    with_mentions,
+)
 from graphicast.sources import AllSourcesFailed, fetch_graphics
 from graphicast.state import load_state, save_state
 
@@ -123,49 +136,32 @@ def _write_dry_run(
     log.info("wrote %s, %s and %s", out / "email.eml", out / "email.html", images_dir)
 
 
-def main(
-    argv: list[str] | None = None,
+def _pipeline(
+    args: argparse.Namespace,
+    cfg: Config,
+    state: dict,
+    state_path: Path,
+    now: datetime,
     *,
-    now: datetime | None = None,
-    get: Callable[..., bytes] = http.get_bytes,
-    send: Callable[..., None] = send_email,
-    publish: Callable[..., dict[str, str]] = publish_images,
-    env: Mapping[str, str] | None = None,
+    official: Severity | None,
+    slot_iso: str | None,
+    watch: bool,
+    get: Callable[..., bytes],
+    send: Callable[..., None],
+    publish: Callable[..., dict[str, str]],
 ) -> int:
-    """Run once. `now`, `get`, `send`, `publish` and `env` are injectable for tests."""
-    args = _parser().parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s %(message)s",
-    )
-    try:
-        cfg = load_config(os.environ if env is None else env)
-    except ConfigError as exc:
-        log.error("configuration error: %s", exc)
-        return 2
-    now = now or datetime.now(UTC)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=UTC)
-    state_path = args.state or cfg.state_path
-    state = load_state(state_path)
+    """Fetch graphics, render, publish, send and save state. Shared by slot and watch runs.
 
-    # 1. Schedule gate. Manual runs (--force / --ignore-schedule) don't consume a slot.
-    slot_iso: str | None = None
-    if not (args.force or args.ignore_schedule):
-        run, slot, reason = should_run(now, state.get("last_slot"), cfg.tz, cfg.hours)
-        if not run:
-            log.info("result: skip (%s)", reason)
-            return 0
-        slot_iso = slot.isoformat()
-
-    # 2. Fetch.
+    `official` is the severity from the official sources (None when disabled). `watch` means
+    the run was started by a severity rise: it always sends with reason=severity rose and
+    never touches `last_slot` (`slot_iso` is None)."""
     try:
         source, graphics = fetch_graphics(cfg.office, get=get)
     except AllSourcesFailed as exc:
         log.error("all sources failed: %s", exc)
         return 1
 
-    # 3. Filter, download, fingerprint (on the original bytes, before JPEG conversion).
+    # Filter, download, fingerprint (on the original bytes, before JPEG conversion).
     active = active_graphics(graphics, now)
     images = _download_images(active, get)
     fp = fingerprint(active, images) if active else EMPTY_FINGERPRINT
@@ -174,8 +170,7 @@ def main(
     previous = saved.get("fingerprint")
     new_numbers = _new_numbers(saved.get("graphics"), hashes)
 
-    # Severe-weather assessment (never raises; disabled by GRAPHICAST_SEVERITY=off).
-    severity = assess(active, cfg.lat, cfg.lon, get) if cfg.severity else None
+    severity = with_mentions(official, active) if official is not None else None
     rose = severity is not None and severity_rose(severity, saved.get("severity"))
     if severity is not None:
         log.info(
@@ -193,6 +188,9 @@ def main(
             log.info("severity rose but there are no active graphics to send")
     elif args.force:
         send_it, outcome = True, f"sent {len(active)} graphics (source={source}, reason=forced)"
+    elif watch:
+        send_it = True
+        outcome = f"sent {len(active)} graphics (source={source}, reason=severity rose)"
     elif fp != previous:
         send_it = True
         outcome = f"sent {len(active)} graphics (source={source}, reason=graphics changed)"
@@ -211,7 +209,7 @@ def main(
         log.info("result: dry-run, %s", outcome)
         return 0
 
-    # 4. Publish (hosted mode) and send.
+    # Publish (hosted mode) and send.
     if send_it:
         try:
             require_smtp(cfg)
@@ -255,7 +253,7 @@ def main(
             log.error("sending email failed: %s", exc)
             return 1
 
-    # 5. Save state. An empty set is recorded too, so the next new graphic counts as a change.
+    # Save state. An empty set is recorded too, so the next new graphic counts as a change.
     # The severity baseline is saved on every run where all sources answered, so a drop
     # followed by a rise triggers again; after a failed assessment the old baseline is kept.
     if slot_iso is not None:
@@ -270,3 +268,87 @@ def main(
     save_state(state_path, state)
     log.info("result: %s", outcome)
     return 0
+
+
+def _watch_no_rise(
+    args: argparse.Namespace,
+    cfg: Config,
+    state: dict,
+    state_path: Path,
+    official: Severity,
+    saved: Mapping,
+) -> int:
+    """Finish a watch run whose risk did not rise: record the snapshot (if all sources
+    answered) and log. --dry-run saves nothing."""
+    if official.ok and not args.dry_run:
+        state.setdefault("offices", {})[cfg.office] = {**saved, "severity": snapshot(official)}
+        save_state(state_path, state)
+    alerts = sorted(a.event for a in official.alerts)
+    log.info(
+        "result: watch (no rise; level %d, alerts %s%s)",
+        official.max_level,
+        alerts,
+        "" if official.ok else "; a source failed, state unchanged",
+    )
+    return 0
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    now: datetime | None = None,
+    get: Callable[..., bytes] = http.get_bytes,
+    send: Callable[..., None] = send_email,
+    publish: Callable[..., dict[str, str]] = publish_images,
+    env: Mapping[str, str] | None = None,
+) -> int:
+    """Run once. `now`, `get`, `send`, `publish` and `env` are injectable for tests."""
+    args = _parser().parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(message)s",
+    )
+    try:
+        cfg = load_config(os.environ if env is None else env)
+    except ConfigError as exc:
+        log.error("configuration error: %s", exc)
+        return 2
+    now = now or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    state_path = args.state or cfg.state_path
+    state = load_state(state_path)
+
+    # Schedule gate: pick slot or watch mode. Manual runs (--force / --ignore-schedule) are
+    # slot-style runs that don't consume a slot.
+    slot_iso: str | None = None
+    watch = False
+    if not (args.force or args.ignore_schedule):
+        run, slot, reason = should_run(now, state.get("last_slot"), cfg.tz, cfg.hours)
+        if run:
+            slot_iso = slot.isoformat()
+        else:
+            if not cfg.severity:
+                log.info("result: skip (%s)", reason)
+                return 0
+            watch = True
+
+    official = assess_official(cfg.lat, cfg.lon, get) if cfg.severity else None
+    if watch and official is not None:
+        saved = state.get("offices", {}).get(cfg.office, {})
+        if not severity_rose(official, saved.get("severity")):
+            return _watch_no_rise(args, cfg, state, state_path, official, saved)
+        log.info("watch run: severity rose, running the send path")
+    return _pipeline(
+        args,
+        cfg,
+        state,
+        state_path,
+        now,
+        official=official,
+        slot_iso=slot_iso,
+        watch=watch,
+        get=get,
+        send=send,
+        publish=publish,
+    )

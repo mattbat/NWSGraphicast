@@ -1,9 +1,10 @@
 name: graphicast
 on:
   schedule:
-    # 6am/12pm/6pm Central in both CDT (11,17,23 UTC) and CST (12,18,0 UTC).
-    # The script decides which run is the real one (see graphicast/schedule.py).
-    - cron: "7 0,11,12,17,18,23 * * *"
+    # Every 15 minutes. The script decides what each run does (graphicast/schedule.py): the
+    # first run in each 6am/12pm/6pm Central slot is a send run; every other run only checks
+    # for a severe-weather rise and emails if the risk went up.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       force:

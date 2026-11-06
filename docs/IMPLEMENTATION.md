@@ -769,7 +769,8 @@ class Severity:
 
 ### 12.3 Config
 
-`GRAPHICAST_LAT` (default `35.2226`) and `GRAPHICAST_LON` (default `-97.4395`) are Norman.
+`GRAPHICAST_LAT` (default `35.6528`) and `GRAPHICAST_LON` (default `-97.4781`) are **Edmond** (changed
+from Norman on 2026-11-06), and `GRAPHICAST_PLACE_NAME` defaults to `Edmond`.
 `GRAPHICAST_SEVERITY` set to `off` disables §12 entirely: no fetches, no flag. Add them to the
 README table.
 

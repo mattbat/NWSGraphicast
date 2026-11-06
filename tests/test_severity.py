@@ -278,3 +278,12 @@ def test_snapshot():
 )
 def test_severity_rose(sev, saved, rose):
     assert severity_rose(sev, saved) is rose
+
+
+def test_assess_official_has_no_mentions_and_with_mentions_adds_them():
+    from graphicast.severity import assess_official, with_mentions
+
+    graphics = [gfx(desc="Large hail possible.")]
+    official = assess_official(*EDMOND, make_get(full_map()))
+    assert official.mentions == () and official.ok
+    assert with_mentions(official, graphics).mentions == ("large hail",)

@@ -29,3 +29,11 @@ def test_live_assess_returns_severity() -> None:
 
     sev = assess([], DEFAULT_LAT, DEFAULT_LON, http.get_bytes)
     assert isinstance(sev, Severity)
+
+
+def test_live_assess_official_returns_severity() -> None:
+    from graphicast.config import DEFAULT_LAT, DEFAULT_LON
+    from graphicast.severity import Severity, assess_official
+
+    sev = assess_official(DEFAULT_LAT, DEFAULT_LON, http.get_bytes)
+    assert isinstance(sev, Severity) and sev.mentions == ()

@@ -150,6 +150,11 @@ def test_force_sends_unchanged(tmp_path, fake_get, mesonet_text, nws_text, FIXTU
     assert len(send.msgs) == 2
 
 
+def graphics_urls(get):
+    """Requested URLs that are not SPC/alert URLs (feeds and images)."""
+    return [u for u in get.urls if "spc.noaa.gov" not in u and "alerts" not in u]
+
+
 def test_schedule_gate_skips_before_fetch(tmp_path, fake_get, mesonet_text, nws_text):
     get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
     state.write_text(
@@ -158,7 +163,7 @@ def test_schedule_gate_skips_before_fetch(tmp_path, fake_get, mesonet_text, nws_
     now = datetime(2026, 11, 6, 13, 30, tzinfo=UTC)  # 07:30 CST
     send = Sender()
     assert run([], state, get, send, now) == 0
-    assert get.urls == [] and send.msgs == []
+    assert not graphics_urls(get) and send.msgs == []
 
 
 def test_schedule_gate_runs_and_records_slot(tmp_path, fake_get, mesonet_text, nws_text):
@@ -175,7 +180,7 @@ def test_gate_outside_window_skips(tmp_path, fake_get, mesonet_text, nws_text):
     get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
     now = datetime(2026, 11, 6, 11, 5, tzinfo=UTC)  # 05:05 CST
     assert run([], state, get, Sender(), now) == 0
-    assert get.urls == []
+    assert not graphics_urls(get)
 
 
 def test_missing_smtp_exit_2(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -583,3 +588,152 @@ def test_banner_uses_place_name(tmp_path, fake_get, mesonet_text, nws_text, FIXT
     sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env=env)
     html = html_of(send.msgs[0][0])
     assert "outlook covers Guthrie." in html and "NWS NORMAN" in html
+
+
+# --- Change 4: watch runs (severity checks between send slots) ------------------------------
+
+WATCH_NOW = datetime(2026, 11, 6, 13, 30, tzinfo=UTC)  # 07:30 CST: inside no new slot
+SLOT_DONE = "2026-11-06T06:00:00-06:00"
+
+
+def seed_state(state, level=0, alerts=(), last_slot=SLOT_DONE, fingerprint="old"):
+    state.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "last_slot": last_slot,
+                "offices": {
+                    "oun": {
+                        "fingerprint": fingerprint,
+                        "severity": {"max_level": level, "alerts": list(alerts)},
+                    }
+                },
+            }
+        )
+    )
+
+
+def watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, now=WATCH_NOW, **kw):
+    return sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, now, argv=(), **kw)
+
+
+def test_watch_no_rise_fetches_only_severity_and_saves_snapshot(
+    tmp_path, fake_get, mesonet_text, nws_text, caplog
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=2)
+    caplog.set_level("INFO", logger="graphicast")
+    rc, get = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, label="MRGL")
+    assert rc == 0 and send.msgs == []
+    assert len(get.urls) == 4 and not graphics_urls(get)
+    assert saved_severity(state) == {"max_level": 1, "alerts": []}
+    assert json.loads(state.read_text())["last_slot"] == SLOT_DONE
+    assert "result: watch (no rise; level 1, alerts [])" in caplog.text
+
+
+def test_watch_rise_sends_without_consuming_slot(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW, caplog
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0)
+    caplog.set_level("INFO", logger="graphicast")
+    rc, get = watch(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH"
+    )
+    assert rc == 0 and len(send.msgs) == 1
+    assert graphics_urls(get)
+    assert send.msgs[0][0]["Subject"].startswith("⚠️ ")
+    assert "reason=severity rose" in caplog.text
+    data = json.loads(state.read_text())
+    assert data["last_slot"] == SLOT_DONE
+    assert data["offices"]["oun"]["fingerprint"] != "old"
+    assert data["offices"]["oun"]["graphics"]
+    assert saved_severity(state)["max_level"] == 3
+
+
+def test_watch_rise_without_active_graphics_saves_severity_only(
+    tmp_path, fake_get, mesonet_text, nws_text
+):
+    late = datetime(2030, 1, 1, 3, 0, tzinfo=UTC)
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0, last_slot="2029-12-31T18:00:00-06:00")
+    rc, _ = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, label="ENH")
+    assert rc == 0 and send.msgs == []
+    assert saved_severity(state)["max_level"] == 3
+    assert json.loads(state.read_text())["last_slot"] == "2029-12-31T18:00:00-06:00"
+
+
+def test_watch_severity_off_skips_with_no_fetches(
+    tmp_path, fake_get, mesonet_text, nws_text, caplog
+):
+    state, send = tmp_path / "state.json", Sender()
+    env = {**ENV, "GRAPHICAST_SEVERITY": "off"}
+    seed_state(state)
+    before = state.read_text()
+    caplog.set_level("INFO", logger="graphicast")
+    rc, get = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, env=env)
+    assert rc == 0 and get.urls == [] and state.read_text() == before
+    assert "result: skip" in caplog.text
+
+
+def test_watch_sources_failing_leaves_state_unchanged(tmp_path, fake_get, mesonet_text, nws_text):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0)
+    before = state.read_text()
+    err = urllib.error.URLError("down")
+    broken = {u: err for u in severity_map()}
+    rc, get = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, **broken)
+    assert rc == 0 and send.msgs == [] and not graphics_urls(get)
+    assert state.read_text() == before
+
+
+def test_watch_without_baseline_records_but_does_not_send(
+    tmp_path, fake_get, mesonet_text, nws_text
+):
+    state, send = tmp_path / "state.json", Sender()
+    state.write_text(json.dumps({"version": 1, "last_slot": SLOT_DONE, "offices": {}}))
+    rc, _ = watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, label="ENH")
+    assert rc == 0 and send.msgs == []
+    assert saved_severity(state)["max_level"] == 3
+
+
+def test_watch_rise_overnight_local_time_sends(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    """12:33 UTC is 02:33 in Honolulu: far from any send slot, yet a rise still emails."""
+    env = {**ENV, "GRAPHICAST_TZ": "Pacific/Honolulu"}
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0, last_slot=None)
+    rc, _ = watch(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
+        alerts=["Tornado Watch"], env=env,
+    )  # fmt: skip
+    assert rc == 0 and len(send.msgs) == 1
+    assert json.loads(state.read_text())["last_slot"] is None
+
+
+def test_watch_rise_dry_run_writes_out_and_sends_nothing(
+    tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
+):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=0)
+    before = state.read_text()
+    out = tmp_path / "out"
+    rc, _ = sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "ENH", env={},
+        argv=("--dry-run", "--out", str(out)),
+    )  # fmt: skip
+    assert rc == 0 and send.msgs == []
+    assert "Enhanced Risk (3/5)" in (out / "email.html").read_text()
+    assert state.read_text() == before
+
+
+def test_watch_dry_run_no_rise_saves_nothing(tmp_path, fake_get, mesonet_text, nws_text):
+    state, send = tmp_path / "state.json", Sender()
+    seed_state(state, level=3)
+    before = state.read_text()
+    rc, _ = sev_run(
+        tmp_path, fake_get, mesonet_text, nws_text, state, send, WATCH_NOW, "MRGL", env={},
+        argv=("--dry-run",),
+    )  # fmt: skip
+    assert rc == 0 and state.read_text() == before

@@ -70,3 +70,4 @@ target/
 
 #Ipython Notebook
 .ipynb_checkpoints
+assets/icons/src/icons_job.json

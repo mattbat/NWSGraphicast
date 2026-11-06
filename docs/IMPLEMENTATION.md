@@ -917,3 +917,167 @@ Split `assess` into `assess_official(lat, lon, get) -> Severity` (with `mentions
 - README: update "How it runs" and the "Severe-weather flag" section (15-minute checks, emails
   at any hour on a rise, and a note that GitHub can delay scheduled runs, so phone emergency
   alerts remain the tool for short-lived warnings).
+
+---
+
+## 14. Change 5: weather widget (Edmond), accent vector icons
+
+Decisions (2026-11-06): compact widget **C2**, **accent** icon style, placed **under the
+header/banner and above the graphics**. Reference: `docs/widget_mockup.py`.
+`widget(style="accent", d)` is the approved markup, and `lucide()` is the approved
+condition → icon mapping. The gradient comes from an earlier mockup:
+
+```python
+def gradient(text, day):  # (top-left, bottom-right) colours
+    s = text.lower()
+    if any(k in s for k in ("thunder", "rain", "shower", "drizzle", "snow", "sleet")):
+        return "#3d4b5f", "#5f7189"
+    if any(k in s for k in ("fog", "cloudy", "overcast", "haze")):
+        return "#5d7590", ("#8fa6be" if day else "#2b3a52")
+    return ("#2f7fd8", "#69b2f0") if day else ("#0e1a3a", "#2b3d6b")
+```
+
+### 14.1 Icons (already in the repo; don't regenerate)
+
+- **Files:** `assets/icons/*.png` are 72×72 transparent PNGs (3× of 24 px) in the accent style,
+  rendered from Lucide SVGs in `assets/icons/src/`.
+- **Regenerating:** `assets/icons/src/render_icons.py` documents how.
+- **Licence:** ISC, in `assets/icons/LICENSE-lucide.txt`. Mention it in the README with a short
+  "Icons" note.
+- **Names:**
+  - weather: `sun`, `moon`, `cloud-sun`, `cloud-moon`, `cloud`, `cloudy`, `cloud-fog`,
+    `cloud-drizzle`, `cloud-rain`, `cloud-lightning`, `cloud-snow`, `cloud-hail`, `wind`
+  - stats row: `sunrise`, `sunset`, `droplet`, `thermometer`
+  - location: `navigation`
+  - others are present but unused
+
+How icons reach the email: `GRAPHICAST_ASSET_BASE_URL` (config `asset_base_url`).
+- **Set:** `<img src="{base}/{name}.png">`. Both workflows set it to
+  `https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/assets/icons`.
+  A commit-pinned URL means later icon changes never alter old emails.
+- **Unset (local runs / inline mode):** embed each **used** icon once as a CID related part,
+  like the inline graphics.
+- **Dry-run preview HTML:** `data:` URIs read from the files.
+
+Locate the icons from the package as `Path(__file__).resolve().parents[1] / "assets" / "icons"`.
+The workflows run from a checkout. Add a test that every icon name the mapping can return
+exists on disk.
+
+### 14.2 `graphicast/weather.py` (new)
+
+```python
+POINTS_URL = "https://api.weather.gov/points/{lat:.4f},{lon:.4f}"
+
+@dataclass(frozen=True)
+class Hour:
+    label: str   # "Now", "9AM", ...
+    icon: str
+    temp: int
+    pop: int
+
+@dataclass(frozen=True)
+class Conditions:
+    place: str
+    temp: int
+    text: str
+    icon: str
+    feels: int | None
+    hi_lo: str                 # "H:55°  L:40°" or "L:40° · Sat H:59°" (see below)
+    hours: tuple[Hour, ...]    # 6 entries
+    sunrise: datetime          # local tz
+    sunset: datetime
+    wind: str                  # "NNE 8", "S 10–15", "Calm"
+    pop: int                   # max hourly precip % over the next 12 h
+    is_day: bool
+
+def fetch_conditions(lat, lon, place, tz, now, get) -> Conditions | None: ...
+```
+
+- **Fetch:** the points URL gives `forecast`, `forecastHourly` and `observationStations`.
+  Observations: try the first 4 stations' `/observations/latest` and take the first whose
+  `temperature.value` isn't null and whose `timestamp` is within 2 h of `now`. Convert °C to
+  °F and round. **Fallback:** if no station qualifies, use the hourly period containing `now`
+  for the temperature and its `shortForecast` for the text.
+- **Text:** the observation's `textDescription`, or the hourly `shortForecast` if empty.
+  "Feels like" comes from `windChill` or `heatIndex` (°C → °F). It's None if both are null
+  **or** it equals the temperature.
+- **High/low:** if forecast period 0 `isDaytime`: `H:{p0}°  L:{p1}°`. Otherwise
+  `L:{p0}° · {Ddd} H:{p1}°`, where `{Ddd}` is the weekday of p1's `startTime`, e.g.
+  "L:40° · Sat H:59°".
+- **Hours:** take 6 hourly periods starting with the one containing `now` (or the first one
+  after it). Labels: "Now" for the first, then `{h}AM`/`{h}PM`. Use the observed temperature
+  for "Now". Icon via the mapping. `pop` from `probabilityOfPrecipitation.value` (null → 0).
+- **Wind:** from forecast period 0. `windSpeed` "8 mph" → "8"; "5 to 10 mph" → "5–10";
+  "0 mph" → "Calm" (no direction). Prefix `windDirection` unless calm.
+- **Sun:** implement the NOAA sunrise/sunset algorithm (stdlib `math`) for `now`'s local
+  date. Return local datetimes. `is_day = sunrise <= now < sunset`.
+- **Never raises:** any failure (HTTP, JSON, missing keys) logs a warning and returns None.
+
+### 14.3 Render
+
+- `render_email` and `render_html_preview` gain `conditions: Conditions | None = None`. When
+  None, there's no widget.
+- Port the mockup's `widget()` exactly:
+  - accent icons, sizes, spacing, gradient and rules
+  - the rain line only when some hour has ≥ 20%
+  - the stats row: sunrise, sunset, wind, max rain %
+- The location line is `{place}` plus the navigation icon.
+- Times use `h:MM AM` in the local tz.
+- **Dark mode:** the widget keeps its own gradient and white text. Give its elements no
+  dark-mode classes, so the dark CSS doesn't recolour it.
+- **Plain text:** one line after any banner:
+  `Edmond 45° Fog (feels 38°) · H:55° L:40° · Sunrise 6:56 AM · Sunset 5:30 PM · Wind NNE 8 mph · Rain 0%`.
+- Icons use `alt=""` (decorative). The widget's text stays readable with images blocked.
+
+### 14.4 CLI / config
+
+- **Fetching:** fetch conditions **only when an email will be rendered** (a send, or
+  `--dry-run`), never in watch runs that don't send. Pass `cfg.place_name`, `cfg.tz`,
+  `cfg.lat` and `cfg.lon`.
+- **Config:**
+  - `asset_base_url` (env `GRAPHICAST_ASSET_BASE_URL`, default None)
+  - `widget: bool` (`GRAPHICAST_WIDGET=off` disables it, case-insensitive)
+  - add both to the README table
+- **Workflows:** add the `GRAPHICAST_ASSET_BASE_URL` env as in 14.1 to `graphicast.yml` and
+  `test-email.yml`.
+
+### 14.5 Tests (coverage gate 90%; offline)
+
+- **Fixtures:** `tests/fixtures/weather/` holds `points.json`, `forecast.json`,
+  `hourly.json` (24 periods), `stations.json` (4 stations) and `observation_KPWA.json`, all
+  real Edmond data from 2026-11-06 ~15:00 UTC. The points URLs inside point at gridpoints
+  OUN/99,102, and the first station is KPWA. Serve them through the fake `get`.
+- **Sun times** within ±2 min of USNO (Edmond): 2026-11-06 rise 06:57 and set 17:30 CST;
+  2026-06-21 rise 06:15 and set 20:49 CDT.
+- **fetch_conditions on the fixtures** (`now` = 2026-11-06 14:40 UTC):
+  - temperature 45 from KPWA (7 °C)
+  - text "Fog"
+  - `H:55°  L:40°`
+  - 6 hours with first label "Now"
+  - wind "NNE 8"
+  - sunrise and sunset as above
+- **Fallbacks and failures:**
+  - a stale observation (timestamp > 2 h old) → hourly fallback
+  - every station null → hourly fallback
+  - points fetch fails → None, with no exception
+- **Formatting:**
+  - night-time first period → the "L:… · Sat H:…" form
+  - wind: "5 to 10 mph" → "5–10"; "0 mph" → "Calm"
+  - feels-like equal to the temperature → None
+- **Icons:** the mapping for the main condition strings, and every name it can return exists
+  in `assets/icons/`.
+- **Render:**
+  - the widget appears after the header/banner and before the first graphic
+  - hosted icon URLs use `asset_base_url`
+  - inline mode attaches icon CIDs, each once
+  - the preview uses `data:` URIs
+  - the rain line appears only when an hour is ≥ 20%
+  - `conditions=None` → no widget
+  - plain-text line present
+  - feed text in the widget is escaped
+- **CLI:**
+  - a send fetches conditions
+  - a watch run without a rise doesn't fetch the points URL
+  - `GRAPHICAST_WIDGET=off` → no points fetch
+  - a weather failure still sends the email, without the widget
+- **Live (opt-in):** `fetch_conditions` against the real API returns `Conditions`.

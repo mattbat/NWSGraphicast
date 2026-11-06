@@ -1,0 +1,195 @@
+{
+ "@context": [
+  "https://geojson.org/geojson-ld/geojson-context.jsonld",
+  {
+   "@version": "1.1",
+   "wx": "https://api.weather.gov/ontology#",
+   "s": "https://schema.org/",
+   "geo": "http://www.opengis.net/ont/geosparql#",
+   "unit": "http://codes.wmo.int/common/unit/",
+   "@vocab": "https://api.weather.gov/ontology#",
+   "geometry": {
+    "@id": "s:GeoCoordinates",
+    "@type": "geo:wktLiteral"
+   },
+   "city": "s:addressLocality",
+   "state": "s:addressRegion",
+   "distance": {
+    "@id": "s:Distance",
+    "@type": "s:QuantitativeValue"
+   },
+   "bearing": {
+    "@type": "s:QuantitativeValue"
+   },
+   "value": {
+    "@id": "s:value"
+   },
+   "unitCode": {
+    "@id": "s:unitCode",
+    "@type": "@id"
+   },
+   "forecastOffice": {
+    "@type": "@id"
+   },
+   "forecastGridData": {
+    "@type": "@id"
+   },
+   "publicZone": {
+    "@type": "@id"
+   },
+   "county": {
+    "@type": "@id"
+   },
+   "observationStations": {
+    "@container": "@list",
+    "@type": "@id"
+   }
+  }
+ ],
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "id": "https://api.weather.gov/stations/KPWA",
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -97.64667,
+     35.54111
+    ]
+   },
+   "properties": {
+    "@id": "https://api.weather.gov/stations/KPWA",
+    "@type": "wx:ObservationStation",
+    "elevation": {
+     "unitCode": "wmoUnit:m",
+     "value": 395.9352
+    },
+    "stationIdentifier": "KPWA",
+    "name": "Oklahoma City, Wiley Post Airport",
+    "timeZone": "America/Chicago",
+    "provider": "ASOS-HFM",
+    "subProvider": "",
+    "distance": {
+     "unitCode": "wmoUnit:m",
+     "value": 20670.320146512
+    },
+    "bearing": {
+     "unitCode": "wmoUnit:degree_(angle)",
+     "value": 231
+    },
+    "forecast": "https://api.weather.gov/zones/forecast/OKZ025",
+    "county": "https://api.weather.gov/zones/county/OKC109",
+    "fireWeatherZone": "https://api.weather.gov/zones/fire/OKZ025"
+   }
+  },
+  {
+   "id": "https://api.weather.gov/stations/KGOK",
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -97.4075,
+     35.85194
+    ]
+   },
+   "properties": {
+    "@id": "https://api.weather.gov/stations/KGOK",
+    "@type": "wx:ObservationStation",
+    "elevation": {
+     "unitCode": "wmoUnit:m",
+     "value": 327.0504
+    },
+    "stationIdentifier": "KGOK",
+    "name": "Guthrie, Guthrie Municipal Airport",
+    "timeZone": "America/Chicago",
+    "provider": "ASOS-HFM",
+    "subProvider": "",
+    "distance": {
+     "unitCode": "wmoUnit:m",
+     "value": 22455.635622929
+    },
+    "bearing": {
+     "unitCode": "wmoUnit:degree_(angle)",
+     "value": 13
+    },
+    "forecast": "https://api.weather.gov/zones/forecast/OKZ019",
+    "county": "https://api.weather.gov/zones/county/OKC083",
+    "fireWeatherZone": "https://api.weather.gov/zones/fire/OKZ019"
+   }
+  },
+  {
+   "id": "https://api.weather.gov/stations/KTIK",
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -97.38333,
+     35.41667
+    ]
+   },
+   "properties": {
+    "@id": "https://api.weather.gov/stations/KTIK",
+    "@type": "wx:ObservationStation",
+    "elevation": {
+     "unitCode": "wmoUnit:m",
+     "value": 394.1064
+    },
+    "stationIdentifier": "KTIK",
+    "name": "Tinker Air Force Base",
+    "timeZone": "America/Chicago",
+    "provider": "OTHER-MTR",
+    "subProvider": "",
+    "distance": {
+     "unitCode": "wmoUnit:m",
+     "value": 27640.713022372
+    },
+    "bearing": {
+     "unitCode": "wmoUnit:degree_(angle)",
+     "value": 164
+    },
+    "forecast": "https://api.weather.gov/zones/forecast/OKZ025",
+    "county": "https://api.weather.gov/zones/county/OKC109",
+    "fireWeatherZone": "https://api.weather.gov/zones/fire/OKZ025"
+   }
+  },
+  {
+   "id": "https://api.weather.gov/stations/KOKC",
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -97.60028,
+     35.38861
+    ]
+   },
+   "properties": {
+    "@id": "https://api.weather.gov/stations/KOKC",
+    "@type": "wx:ObservationStation",
+    "elevation": {
+     "unitCode": "wmoUnit:m",
+     "value": 394.1064
+    },
+    "stationIdentifier": "KOKC",
+    "name": "Oklahoma City, Will Rogers World Airport",
+    "timeZone": "America/Chicago",
+    "provider": "ASOS-HFM",
+    "subProvider": "",
+    "distance": {
+     "unitCode": "wmoUnit:m",
+     "value": 32073.810991319
+    },
+    "bearing": {
+     "unitCode": "wmoUnit:degree_(angle)",
+     "value": 202
+    },
+    "forecast": "https://api.weather.gov/zones/forecast/OKZ025",
+    "county": "https://api.weather.gov/zones/county/OKC109",
+    "fireWeatherZone": "https://api.weather.gov/zones/fire/OKZ025"
+   }
+  }
+ ],
+ "pagination": {
+  "next": "https://api.weather.gov/stations?id%5B0%5D=K1F0&id%5B1%5D=KADH&id%5B2%5D=KADM&id%5B3%5D=KAVK&id%5B4%5D=KAXS&id%5B5%5D=KBVO&id%5B6%5D=KCDS&id%5B7%5D=KCFV&id%5B8%5D=KCHK&id%5B9%5D=KCQB&id%5B10%5D=KCSM&id%5B11%5D=KCUH&id%5B12%5D=KDTO&id%5B13%5D=KDUA&id%5B14%5D=KDUC&id%5B15%5D=KF05&id%5B16%5D=KFDR&id%5B17%5D=KGAG&id%5B18%5D=KGCM&id%5B19%5D=KGLE&id%5B20%5D=KGOK&id%5B21%5D=KGVT&id%5B22%5D=KGYI&id%5B23%5D=KHBR&id%5B24%5D=KHHF&id%5B25%5D=KJWG&id%5B26%5D=KLAW&id%5B27%5D=KLBL&id%5B28%5D=KLBR&id%5B29%5D=KLUD&id%5B30%5D=KMKO&id%5B31%5D=KMLC&id%5B32%5D=KOJA&id%5B33%5D=KOKC&id%5B34%5D=KOKM&id%5B35%5D=KOSA&id%5B36%5D=KOUN&id%5B37%5D=KP28&id%5B38%5D=KPNC&id%5B39%5D=KPPA&id%5B40%5D=KPRX&id%5B41%5D=KPVJ&id%5B42%5D=KPWA&id%5B43%5D=KPYX&id%5B44%5D=KRPH&id%5B45%5D=KRVS&id%5B46%5D=KSLR&id%5B47%5D=KSNL&id%5B48%5D=KSPS&id%5B49%5D=KSWO&id%5B50%5D=KTIK&id%5B51%5D=KTKI&id%5B52%5D=KTUL&id%5B53%5D=KWDG&id%5B54%5D=KWLD&id%5B55%5D=KWWR&id%5B56%5D=KXBP&cursor=eyJzIjo1MDB9"
+ }
+}

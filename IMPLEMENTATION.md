@@ -454,3 +454,126 @@ bytes by URL, or raises `urllib.error.URLError` for URLs mapped to an Exception.
 
 Phase 3 (PWA + Web Push) is **out of scope** for this spec. It gets its own spec after v2 email
 has been running on Actions.
+
+---
+
+## 10. Change 1: hosted, expiring JPEG images (replaces inline images for scheduled sends)
+
+**Why:** inline PNGs make each email about 5.7 MB. Linking to NWS URLs is no good either,
+because NWS reuses them, so old emails would show new images. Decision: convert to JPEG,
+commit to an `images` branch under a unique folder per send, link to
+`raw.githubusercontent.com`, and delete folders older than 7 days. Emails become about 10 KB.
+
+### 10.1 Behaviour
+
+Two image modes, chosen by config:
+- **hosted mode:** both `GRAPHICAST_IMAGES_DIR` and `GRAPHICAST_IMAGES_BASE_URL` are set
+  (the GitHub workflow sets them). Images are published, then linked by URL. The email has
+  **no attachments**.
+- **inline mode:** either one is unset (local runs, tests). Same as today: CID-embedded
+  images, but as JPEG.
+
+The send path in `cli.main` (not dry-run, `send_it` true) becomes:
+1. Convert the downloaded images to JPEG (§10.2). Fingerprinting still uses the **original**
+   bytes, before conversion.
+2. Hosted mode: `publish_images(...)` (§10.3) → `{image_url: hosted_url}`. If it raises,
+   log an error, exit 1, don't send, and don't save state.
+3. Render with `hosted_urls` (§10.4) and send.
+
+`--dry-run` behaves as before (data-URI preview, no publish). It also writes the converted
+JPEGs to `out/images/` so you can check their sizes.
+
+### 10.2 `graphicast/images.py` (new)
+
+```python
+def to_jpeg(data: bytes, *, quality: int = 82) -> tuple[bytes, str]:
+    """Return (bytes, extension). PNG/JPEG/other still images → RGB JPEG (Pillow,
+    optimize=True), extension "jpg". Animated GIFs (Pillow `is_animated`) are returned
+    unchanged with extension "gif". Bytes Pillow can't open are returned unchanged with
+    extension "bin", plus a logged warning."""
+
+def convert_all(images: dict[str, bytes]) -> dict[str, tuple[bytes, str]]:
+    """Map image_url -> to_jpeg(data)."""
+```
+`Pillow>=10` becomes the single runtime dependency (`dependencies = ["Pillow>=10"]`). Convert
+RGBA/P mode to RGB onto a white background, not black.
+
+### 10.3 `graphicast/publish.py` (new)
+
+```python
+FOLDER_FMT = "%Y%m%dT%H%M%SZ"   # UTC, e.g. 20261106T120712Z
+
+def publish_images(*, repo_dir: Path, base_url: str, graphics: list[Graphic],
+                   converted: dict[str, tuple[bytes, str]], now: datetime,
+                   retention_days: int = 7, branch: str = "images",
+                   git: Callable[..., str] = run_git,
+                   check_url: Callable[[str], bool] = url_ok) -> dict[str, str]:
+```
+1. `folder = now.astimezone(UTC).strftime(FOLDER_FMT)`. Write each graphic's converted image
+   to `repo_dir/folder/<number>.<ext>`.
+2. **Prune:** delete every top-level dir in `repo_dir` whose name parses with `FOLDER_FMT` and
+   is older than `now - retention_days`. Leave other files, `.git` and dirs with names that
+   don't parse untouched.
+3. **Publish as a single history-less commit:** run `git add -A`, then `git write-tree` to
+   get `tree`, then `git commit-tree <tree> -m "images <folder>"` to get `commit`, then
+   `git push --force origin <commit>:refs/heads/<branch>`. Run every command with
+   `cwd=repo_dir`. `run_git(*args, cwd)` is a thin `subprocess.run(["git", *args], check=True,
+   capture_output=True, text=True)` wrapper that returns stripped stdout.
+4. URLs: `f"{base_url.rstrip('/')}/{folder}/{number}.{ext}"`.
+5. **Verify:** call `check_url` on the first URL up to 5 times, sleeping 3 s between tries
+   (inject `sleep` for tests). If it never returns True, log a warning and continue. Don't
+   fail the run, because the link usually works a moment later.
+6. Return `{graphic.image_url: hosted_url}`.
+
+`url_ok(url)` does an HTTP HEAD through `graphicast.http` (add `head_ok(url, timeout)` there)
+and returns True on 200.
+
+### 10.4 Rendering changes (`render.py`)
+
+- `render_email(..., hosted_urls: dict[str, str] | None = None)`. When given, each graphic's
+  `<img src>` is its hosted URL and nothing is attached. Otherwise CID-embed the converted
+  JPEGs as today. The `images` passed in are now the converted bytes. Sniffing handles JPEG
+  already.
+- Under each image add a small link: `<a href="{original NWS image_url}">Current version on
+  weather.gov</a>`. Keep the footer links (NWS office page, SPC). The plain-text part lists
+  the hosted URL (if any) and the NWS URL.
+- Add `alt` text and `width="100%"` so the layout holds even after hosted images expire.
+
+### 10.5 Config additions (`config.py`)
+
+| env | field | default |
+|---|---|---|
+| `GRAPHICAST_IMAGES_DIR` | `images_dir: Path \| None` | None |
+| `GRAPHICAST_IMAGES_BASE_URL` | `images_base_url: str \| None` | None |
+| `GRAPHICAST_IMAGE_DAYS` | `image_days: int` | 7 (must be ≥ 1, else ConfigError) |
+
+Add the property `hosted: bool` (both set).
+
+### 10.6 Workflow changes (`graphicast.yml`)
+
+- Add `- run: pip install .` after setup-python, because Pillow is now required.
+- Add an images worktree step next to the state one:
+  ```bash
+  if git fetch origin images; then git worktree add images origin/images
+  else git worktree add --orphan -b images images; fi
+  ```
+- Run step env: `GRAPHICAST_IMAGES_DIR: images` and
+  `GRAPHICAST_IMAGES_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/images`.
+- `.gitignore`: add `images/`.
+- Update the README: how image hosting works, the 7-day expiry, and that the `images` branch is
+  force-pushed and has no history.
+
+### 10.7 Tests (coverage gate still 90%)
+
+- `test_images.py`: a PNG built with Pillow in memory → JPEG magic `\xff\xd8`, ext "jpg",
+  smaller than a large noisy PNG; RGBA → white background (check a pixel); animated GIF
+  unchanged with ext "gif"; garbage bytes → unchanged with ext "bin".
+- `test_publish.py`: use a **real temporary git repo** (`git init` in tmp_path, plus a bare
+  repo as `origin`) so the git sequence is actually exercised. Check the files are written,
+  the push reaches the bare repo's `images` branch with exactly one commit (no parents), old
+  folders are pruned while recent ones are kept, non-matching names are untouched,
+  `check_url` is retried and failure only warns, and a git failure raises.
+- `test_render.py`: in hosted mode the message has no image parts, `img src` equals the hosted
+  URLs, the NWS link is present, and the total `as_bytes()` is < 50 KB.
+- `test_cli.py`: in hosted mode, publish is called before send (record call order); publish
+  failure → exit 1, no send, state untouched; in inline mode, images are attached as JPEG.

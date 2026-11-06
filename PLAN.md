@@ -28,7 +28,7 @@ rewrite is agreed.
 | 2 | Images are hot-linked, and NWS reuses URLs (`.../graphicast/2.png` gets overwritten) | An old email opened later shows *today's* image, not the one it was sent with. `MIMEImage` is imported but never used |
 | 3 | Change detection compares raw bytes of the whole feed, including expired items | Emails fire on irrelevant changes. Expired items silently stop showing without triggering anything |
 | 4 | Same image URL, new picture → bytes of the feed may not change | Possible missed updates |
-| 5 | `ast.literal_eval` on remote data; Mesonet is a third-party mirror | Fragile; extra dependency. NWS serves the same data natively (see §2) |
+| 5 | `ast.literal_eval` on remote data; a single source with no fallback and no alert when it breaks | Fragile; a silent outage means you just stop getting emails (see §2) |
 | 6 | Global mutable `html_images`; string-concatenated HTML, no escaping | Hard to maintain/test |
 | 7 | Plaintext Gmail password in `config.ini`; `-c` still asks for an office that's no longer used | Confusing, insecure |
 | 8 | Feed is re-downloaded (and zip re-resolved) once per subscriber, not once per office | Wasteful; would race if runs overlap |
@@ -37,11 +37,25 @@ rewrite is agreed.
 
 ## 2. Data sources (verified working 2026-11-06)
 
-- **NWS native XML** (preferred): `https://www.weather.gov/source/<office>/graphicast/graphicast.xml`
-  — same fields as Mesonet (`StartTime`, `EndTime`, `title`, `description`, `FullImage`,
-  `SmallImage`, `ImageLoop`, `radar`, `order`). Contains a `<creation-date>` that changes on
-  every regeneration, so change detection must hash *normalized content*, not raw bytes.
-- Mesonet mirror (current): `http://www.mesonet.org/index.php/api/nws_products/graphicast_info/<office>` — still works, keep only as a fallback.
+History: before March 2017 (`6c2031b`) the script read NWS directly from
+`http://www.srh.noaa.gov/images/fxc/<office>/graphicast/graphicast.xml`. That broke when
+NWS retired the regional `srh.noaa.gov` hosts, and the script switched to Mesonet. Mesonet
+has been the stable choice ever since.
+
+- **Mesonet JSON** (current, primary): `http://www.mesonet.org/index.php/api/nws_products/graphicast_info/<office>`
+  — reliable since 2017. Keep it as the **primary** source.
+- **NWS XML** (new location, fallback): `https://www.weather.gov/source/<office>/graphicast/graphicast.xml`
+  — same fields (`StartTime`, `EndTime`, `title`, `description`, `FullImage`, ...). This file
+  feeds weather.gov's own graphicast widget, but it isn't a documented API, and NWS has moved
+  it before. Use it only as a **fallback**. It has a `<creation-date>` that changes on every
+  refresh, so change detection must hash normalized content, not raw bytes.
+- Both parse into one `Graphic` model behind a `Source` interface, so swapping or adding a
+  source changes one file.
+- **Breakage detection:** if every source fails (HTTP error, parse error, missing fields),
+  the run fails loudly. GitHub then emails you, and an optional ntfy alert can tell you too.
+  The run never silently sends nothing. Saved copies of the feeds in `tests/fixtures/`
+  catch format changes in CI.
+- Optional: log when Mesonet and NWS disagree, as early warning that one has drifted.
 - Images: `https://www.weather.gov/images/<office>/graphicast/<n>.png` — 200 OK.
 - Zip → office: not needed if the office is configured directly. If wanted, use
   `api.weather.gov/points/<lat>,<lon>` → `properties.cwa` (official API, no scraping).
@@ -73,7 +87,7 @@ Small, stdlib-first Python package; zero Google dependencies.
 ```
 graphicast/
   config.py      # load config.yaml/toml + env secrets → dataclasses
-  fetch.py       # fetch + parse NWS XML → list[Graphic] (fallback: Mesonet JSON)
+  sources/       # mesonet.py (primary), nws_xml.py (fallback) → list[Graphic]
   model.py       # Graphic dataclass, is_active(now), content fingerprint
   state.py       # load/save {office: {fingerprint, sent_at, image_hashes}}
   render.py      # HTML + plain-text email via a template (proper escaping)
@@ -120,7 +134,7 @@ Phase 0 — decisions (see open questions)
 
 Phase 1 — rewrite, email parity
 - [ ] Scaffold package, `pyproject.toml`, ruff, pytest
-- [ ] NWS XML fetch/parse with saved fixtures; Mesonet fallback
+- [ ] Source interface: Mesonet (primary) + NWS XML (fallback), saved fixtures, fail loudly if all sources fail
 - [ ] Active-window filter + content fingerprint (incl. image hashes)
 - [ ] State store (JSON) + change detection; per-office fan-out
 - [ ] Email renderer (HTML + text) with CID-embedded images

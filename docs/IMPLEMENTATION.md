@@ -859,3 +859,60 @@ Per office, the state gains `"severity": {"max_level": int, "alerts": [sorted ev
   - banner text escaped
 - **Live:** extend `tests/test_live.py` to call `assess` against the real APIs and assert it
   returns a `Severity` (any values).
+
+---
+
+## 13. Change 4: severe-weather checks every 15 minutes
+
+Decisions (2026-11-06): the workflow runs **every 15 minutes**. A severity rise **emails at
+any hour**, overnight included. Graphics-change emails still happen only at the 6/12/18 slots.
+
+### 13.1 Two run modes (`cli.py`)
+
+The schedule gate no longer exits on "not a slot". It picks a mode instead:
+
+- **Slot run.** `should_run(...)` is true, or `--force` or `--ignore-schedule` is given. This
+  is exactly today's behaviour: fetch graphics, then assess severity; send on graphics change,
+  severity rise or force; consume the slot.
+- **Watch run.** Every other run. If `cfg.severity` is off, log `result: skip (...)` and exit 0
+  as today, with no fetches. Otherwise:
+  1. `official = assess_official(lat, lon, get)` fetches **only** SPC days 1–3 and alerts.
+     **No graphics fetch yet.**
+  2. If `severity_rose(official, saved)` is false: save the severity snapshot if `ok` (§12.4),
+     log `result: watch (no rise; level N, alerts [...])`, and exit 0.
+  3. If it rose: run the normal send path (fetch graphics, filter, download, fingerprint,
+     NEW tags, mentions, render, publish, send) with `reason=severity rose`. Save the
+     fingerprint, graphic hashes and severity as a send does. **Don't** touch `last_slot`. If
+     there are no active graphics, log it and still save severity; nothing is sent.
+- `--dry-run` works in both modes.
+
+### 13.2 `severity.py` refactor
+
+Split `assess` into `assess_official(lat, lon, get) -> Severity` (with `mentions=()`) and
+`with_mentions(sev, graphics) -> Severity` (via `dataclasses.replace`). Keep
+`assess(graphics, lat, lon, get)` as a thin wrapper so existing callers and tests keep working.
+
+### 13.3 Workflow (`graphicast.yml`)
+
+- `cron: "*/15 * * * *"`. Update the comment: slots are decided in code, and other runs only
+  check for severity rises.
+- The "Save state" step already commits only when `state.json` changed. Keep it, so unchanged
+  watch runs don't create commits.
+- Keep `concurrency` (no overlapping runs) and the keepalive step.
+
+### 13.4 Tests
+
+- **Watch run, no rise:** `get` is called only for SPC/alert URLs (assert no graphics or image
+  URL was requested), nothing is sent, the snapshot is saved, and `last_slot` is unchanged.
+- **Watch run, rise:** graphics are fetched, the email is sent with ⚠️ and
+  `reason=severity rose`, `last_slot` is unchanged, and the fingerprint and severity are
+  saved.
+- **Watch run with a rise but no active graphics:** no send, severity saved.
+- **Watch run, severity off:** skip with no fetches at all.
+- **Watch run with severity sources failing:** no send, state unchanged, exit 0.
+- **Slot run:** behaviour unchanged (the existing tests keep passing).
+- **Overnight:** a watch-run rise at 03:00 local time sends.
+- **Dry-run:** a watch-run rise writes `out/` and sends nothing.
+- README: update "How it runs" and the "Severe-weather flag" section (15-minute checks, emails
+  at any hour on a rise, and a note that GitHub can delay scheduled runs, so phone emergency
+  alerts remain the tool for short-lived warnings).

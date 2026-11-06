@@ -133,7 +133,8 @@ severe weather to report, a banner joins the bottom of the header (see below).
 conditions for `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default) from api.weather.gov: the
 temperature and a short description with a feels-like value, today's high and low, the next six
 hours with an icon, temperature and (when any hour is 20% or more) a chance of rain, and a row
-with sunrise, sunset, wind and the highest rain chance over the next 12 hours. The temperature
+with sunrise, sunset, wind and the highest rain chance over the next 12 hours, and a line with
+the next forecast period (for example "Tonight: Showers likely, low 52°"). The temperature
 comes from the nearest recent station observation, falling back to the hourly forecast; sunrise
 and sunset are computed locally. The card keeps its own colours in dark mode, and its text is
 readable with images blocked. It is fetched only when an email is rendered, and if the weather

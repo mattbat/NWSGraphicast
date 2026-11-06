@@ -54,9 +54,10 @@ def widget_plain(c: Conditions) -> str:
     """One line, e.g. "Edmond 45° Fog (feels 38°) · H:55° L:40° · Sunrise 6:56 AM · ..."."""
     feels = f" (feels {c.feels}°)" if c.feels is not None else ""
     hi_lo = " ".join(c.hi_lo.split())
+    outlook = f" · {c.outlook}" if c.outlook else ""
     return (
         f"{c.place} {c.temp}° {c.text}{feels} · {hi_lo} · Sunrise {clock(c.sunrise)} · "
-        f"Sunset {clock(c.sunset)} · Wind {_wind_text(c)} · Rain {c.pop}%"
+        f"Sunset {clock(c.sunset)} · Wind {_wind_text(c)} · Rain {c.pop}%{outlook}"
     )
 
 
@@ -98,6 +99,12 @@ def widget_html(c: Conditions, icon_src: Callable[[str], str]) -> str:
         else ""
     )
     hi_lo = escape(c.hi_lo).replace("  ", "&nbsp; ")
+    outlook = (
+        '<tr><td align="center" style="padding:0 14px 9px;font-size:12px;font-weight:500;'
+        f'line-height:16px;color:rgba(255,255,255,.85)">{escape(c.outlook)}</td></tr>\n'
+        if c.outlook
+        else ""
+    )
     rule = '<tr><td style="padding:0 14px"><div style="height:1px;line-height:1px;font-size:0;background:rgba(255,255,255,.2)">&nbsp;</div></td></tr>'
     return f"""<tr><td style="padding:0 8px 12px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"
 style="background:{c1};background-image:linear-gradient(165deg,{c1} 0%,{c2} 100%);border-radius:16px;color:#fff;font-family:{FONT}">
@@ -111,4 +118,4 @@ style="background:{c1};background-image:linear-gradient(165deg,{c1} 0%,{c2} 100%
 <tr><td style="padding:6px 8px 6px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{hours}</tr></table></td></tr>
 <tr><td style="padding:0 6px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
 {stat("sunrise", clock(c.sunrise))}{stat("sunset", clock(c.sunset))}{stat("wind", c.wind)}{stat("droplet", f"{c.pop}%")}</tr></table></td></tr>
-</table></td></tr>"""
+{outlook}</table></td></tr>"""

@@ -121,3 +121,15 @@ def test_feed_text_escaped_in_widget():
 def test_widget_text_survives_without_images():
     html = preview_of([g()], {}, conditions=replace(conditions(), temp=77))
     assert "77°" in html and NOW.tzinfo is UTC
+
+
+def test_outlook_row_in_html_and_plain_line():
+    src = lambda n: f"https://h/{n}.png"  # noqa: E731
+    c = conditions(outlook="Tonight: <Showers> likely, low 52°")
+    html = widget_html(c, src)
+    assert "Tonight: &lt;Showers&gt; likely, low 52°" in html and "<Showers>" not in html
+    assert html.index("Tonight:") > html.index("droplet.png")
+    assert widget_plain(c).endswith("Rain 0% · Tonight: <Showers> likely, low 52°")
+    plain = conditions()
+    assert "Tonight" not in widget_html(plain, src)
+    assert widget_plain(plain).endswith("Rain 0%")

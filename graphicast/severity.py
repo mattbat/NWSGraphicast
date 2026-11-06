@@ -18,6 +18,8 @@ from graphicast.model import Graphic
 log = logging.getLogger(__name__)
 
 SPC_URL = "https://www.spc.noaa.gov/products/outlook/day{day}otlk_cat.lyr.geojson"
+# Human-readable forecast page for the point; it lists the active hazards with their full text.
+ALERT_PAGE_URL = "https://forecast.weather.gov/MapClick.php?lat={lat:.4f}&lon={lon:.4f}"
 ALERTS_URL = "https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
 LEVELS = {
     "MRGL": (1, "Marginal"),
@@ -26,6 +28,7 @@ LEVELS = {
     "MDT": (4, "Moderate"),
     "HIGH": (5, "High"),
 }  # TSTM and anything else is ignored
+LEVEL_NAMES = {level: name for level, name in LEVELS.values()}
 FLAG_LEVEL = 2
 OUTLOOK_DAYS = (1, 2, 3)
 
@@ -74,6 +77,7 @@ class Outlook:
 class Alert:
     event: str
     headline: str
+    url: str = ""  # link for the banner; "" renders no link
 
 
 @dataclass(frozen=True)
@@ -137,8 +141,10 @@ def parse_spc(text: str, day: int, lat: float, lon: float) -> Outlook | None:
     return best
 
 
-def parse_alerts(text: str) -> tuple[Alert, ...]:
-    """Severe/winter/flood/heat watches and warnings, de-duplicated by event name."""
+def parse_alerts(text: str, page_url: str = "") -> tuple[Alert, ...]:
+    """Severe/winter/flood/heat watches and warnings, de-duplicated by event name. Each alert
+    links to `page_url` (the point's forecast page, which lists active hazards): the feed's own
+    per-alert URLs are api.weather.gov JSON, which is unreadable on a phone."""
     found: dict[str, Alert] = {}
     for feature in json.loads(text).get("features", []):
         props = feature.get("properties") or {}
@@ -147,7 +153,7 @@ def parse_alerts(text: str) -> tuple[Alert, ...]:
             continue
         if not any(k in event for k in ALERT_KEYWORDS):
             continue
-        found.setdefault(event, Alert(event, props.get("headline") or ""))
+        found.setdefault(event, Alert(event, props.get("headline") or "", page_url))
     return tuple(found.values())
 
 
@@ -192,7 +198,8 @@ def assess_official(lat: float, lon: float, get: Callable[..., bytes]) -> Severi
             outlooks.append(outlook)
     alerts: tuple[Alert, ...] = ()
     try:
-        alerts = parse_alerts(get(ALERTS_URL.format(lat=lat, lon=lon)).decode("utf-8"))
+        text = get(ALERTS_URL.format(lat=lat, lon=lon)).decode("utf-8")
+        alerts = parse_alerts(text, ALERT_PAGE_URL.format(lat=lat, lon=lon))
     except Exception as exc:
         log.warning("active alerts fetch failed: %s", exc)
         ok = False
@@ -228,3 +235,60 @@ def severity_rose(sev: Severity, saved: object) -> bool:
     if sev.max_level >= FLAG_LEVEL and sev.max_level > level:
         return True
     return any(a.event not in alerts for a in sev.alerts)
+
+
+def _saved_parts(saved: object) -> tuple[int, list[str]] | None:
+    """(max_level, alert events) from a saved snapshot, or None if missing or malformed."""
+    if not isinstance(saved, dict):
+        return None
+    level, alerts = saved.get("max_level"), saved.get("alerts")
+    if not isinstance(level, int) or not isinstance(alerts, list):
+        return None
+    return level, alerts
+
+
+def rise_note(sev: Severity, saved: object, *, off_schedule: bool) -> str | None:
+    """One line saying what rose versus the saved baseline (same rule as `severity_rose`), for
+    an email sent because of that rise. `off_schedule` is True for a watch (non-slot) run."""
+    parts = _saved_parts(saved)
+    if parts is None or not sev.ok:
+        return None
+    old_level, old_alerts = parts
+    new_alerts = [a.event for a in sev.alerts if a.event not in old_alerts]
+    level_part = None
+    if sev.max_level >= FLAG_LEVEL and sev.max_level > old_level:
+        before = LEVEL_NAMES.get(old_level, "no severe risk")
+        level_part = f"from {before} to {LEVEL_NAMES[sev.max_level]} ({sev.max_level}/5)"
+    alert_part = f"new {', '.join(new_alerts)}" if new_alerts else None
+    if level_part is None and alert_part is None:
+        return None
+    if off_schedule:
+        body = "; ".join(
+            p for p in (f"severe risk rose {level_part}" if level_part else None, alert_part) if p
+        )
+        return f"Sent outside the usual schedule: {body}."
+    body = "; ".join(p for p in (level_part, alert_part) if p)
+    return f"Severe risk rose since the last check: {body}."
+
+
+def lowered_note(sev: Severity, sent: object) -> str | None:
+    """A soft note when the risk is lower than at the last *sent* email: the level dropped
+    and/or alerts in that email are no longer active. None for a failed assessment or
+    missing or malformed `sent` data. It never triggers a send."""
+    parts = _saved_parts(sent)
+    if parts is None or not sev.ok:
+        return None
+    old_level, old_alerts = parts
+    sentences = []
+    if sev.max_level < old_level:
+        if sev.max_level > 0:
+            sentences.append(
+                f"Severe risk has dropped to {LEVEL_NAMES[sev.max_level]} since the last email."
+            )
+        else:
+            sentences.append("Severe risk has dropped below Marginal since the last email.")
+    active = {a.event for a in sev.alerts}
+    gone = [e for e in old_alerts if e not in active]
+    if gone:
+        sentences.append(f"No longer in effect: {', '.join(gone)}.")
+    return " ".join(sentences) or None

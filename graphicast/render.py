@@ -12,16 +12,31 @@ from email.utils import make_msgid
 from html import escape
 from zoneinfo import ZoneInfo
 
+from graphicast.config import DEFAULT_RADAR
 from graphicast.model import Graphic
 from graphicast.severity import Severity
 from graphicast.weather import Conditions
 from graphicast.widget import icon_names, icon_path, widget_html, widget_plain
 
 SPC_URL = "https://www.spc.noaa.gov/"
+SPC_OUTLOOK_URL = "https://www.spc.noaa.gov/products/outlook/day{day}otlk.html"
+RADAR_URL = "https://radar.weather.gov/station/{station}/standard"
+AFD_URL = (
+    "https://forecast.weather.gov/product.php?site={office}&issuedby={office}"
+    "&product=AFD&format=txt&version=1&glossary=1"
+)
 
 
 def office_url(office: str) -> str:
     return f"https://www.weather.gov/{office.lower()}"
+
+
+def radar_url(station: str) -> str:
+    return RADAR_URL.format(station=station.upper())
+
+
+def afd_url(office: str) -> str:
+    return AFD_URL.format(office=office.upper())
 
 
 def image_type(data: bytes) -> tuple[str, str]:
@@ -35,12 +50,18 @@ def image_type(data: bytes) -> tuple[str, str]:
     return "application", "octet-stream"
 
 
-def format_subject(office: str, now: datetime, tz: str, flagged: bool = False) -> str:
+def format_subject(
+    office: str, now: datetime, tz: str, flagged: bool = False, lead: str | None = None
+) -> str:
+    """e.g. "⚠️ Enhanced Risk today · NWS OUN Graphicast — Fri Nov 6, 6:00 PM"; `lead` is the
+    optional phrase between the warning sign and the title."""
     local = now.astimezone(ZoneInfo(tz))
     hour = str(int(local.strftime("%I")))
     flag = "\u26a0\ufe0f " if flagged else ""
+    lead_text = f"{lead} \u00b7 " if lead else ""
     return (
-        f"{flag}NWS {office.upper()} Graphicast — {local:%a %b} {local.day}, {hour}:{local:%M %p}"
+        f"{flag}{lead_text}NWS {office.upper()} Graphicast — "
+        f"{local:%a %b} {local.day}, {hour}:{local:%M %p}"
     )
 
 
@@ -63,9 +84,9 @@ _STYLE = (
     ".c-link{color:#8ab4ff !important}"
     ".badge{background:#3a2a0a !important;color:#fcd34d !important}"
     ".bn-warn{background:#2b1d0e !important;border-color:#6b4a1c !important;color:#f3c27a !important}"
-    ".bn-warn b{color:#ff9b8f !important}"
+    ".bn-warn b,.bn-warn a{color:#ff9b8f !important}"
     ".bn-info{background:#182029 !important;border-color:#26303c !important;color:#c3cfdd !important}"
-    ".bn-info b{color:#e8eef6 !important}"
+    ".bn-info b,.bn-info a{color:#e8eef6 !important}"
     "}"
 )
 
@@ -86,16 +107,29 @@ def format_valid_until(end: datetime, tz: str) -> str:
 
 @dataclass(frozen=True)
 class Banner:
-    """The severe-weather / heads-up banner: a title, then (bold text, detail) entries."""
+    """The severe-weather / heads-up banner: a title, then (bold text, detail, url) entries.
+    An empty url means the bold text is not a link. `radar_url`, when set, is a final line."""
 
     flagged: bool
     title: str
-    entries: tuple[tuple[str, str], ...]
+    entries: tuple[tuple[str, str, str], ...]
+    radar_url: str = ""
 
     def plain_lines(self) -> list[str]:
-        """Every non-empty bold/detail line, prefixed `!! ` when flagged."""
+        """Every non-empty bold/detail line (prefixed `!! ` when flagged), each bold line
+        followed by its URL when it has one, and the radar link last."""
         prefix = "!! " if self.flagged else ""
-        return [prefix + t for entry in self.entries for t in entry if t]
+        lines: list[str] = []
+        for strong, detail, url in self.entries:
+            if strong:
+                lines.append(prefix + strong)
+                if url:
+                    lines.append(url)
+            if detail:
+                lines.append(prefix + detail)
+        if self.radar_url:
+            lines.append(f"Radar: {self.radar_url}")
+        return lines
 
 
 def _day_label(valid: datetime, now: datetime, tz: str) -> str:
@@ -103,28 +137,47 @@ def _day_label(valid: datetime, now: datetime, tz: str) -> str:
     return "today" if local.date() == _local(now, tz).date() else f"{local:%A}"
 
 
+def subject_lead(severity: Severity | None, new_count: int, now: datetime, tz: str) -> str | None:
+    """Why to open the email, for the subject. If flagged: the first alert event (plus " +N"
+    for more), else the highest outlook ("Enhanced Risk today"). Otherwise "N new graphic(s)"
+    when any graphic is NEW, else None."""
+    if severity is not None and severity.flagged:
+        if severity.alerts:
+            extra = len(severity.alerts) - 1
+            return severity.alerts[0].event + (f" +{extra}" if extra else "")
+        top = min(severity.outlooks, key=lambda o: (-o.level, o.day))
+        return f"{top.name} Risk {_day_label(top.valid, now, tz)}"
+    if new_count:
+        return f"{new_count} new graphic" + ("s" if new_count != 1 else "")
+    return None
+
+
 def build_banner(
-    severity: Severity | None, place_name: str, now: datetime, tz: str
+    severity: Severity | None, place_name: str, now: datetime, tz: str, radar: str = ""
 ) -> Banner | None:
-    """Banner content (section 12.5), or None when there is nothing to show."""
+    """Banner content (section 12.5), or None when there is nothing to show. Outlooks link to
+    the SPC outlook page for their day, alerts to `Alert.url`; a flagged banner ends with a
+    Radar link when `radar` (a station id) is given."""
     if severity is None:
         return None
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     for o in severity.outlooks:
         label = _day_label(o.valid, now, tz)
         entries.append(
             (
                 f"{o.name} Risk ({o.level}/5) of severe storms, {label}",
                 f"Storm Prediction Center Day {o.day} outlook covers {place_name}.",
+                SPC_OUTLOOK_URL.format(day=o.day),
             )
         )
-    entries.extend((a.event, a.headline) for a in severity.alerts)
+    entries.extend((a.event, a.headline, a.url) for a in severity.alerts)
     if severity.mentions:
-        entries.append(("", "Graphics mention: " + ", ".join(severity.mentions)))
+        entries.append(("", "Graphics mention: " + ", ".join(severity.mentions), ""))
     if not entries:
         return None
     title = "" if severity.flagged else "Heads up"
-    return Banner(severity.flagged, title, tuple(entries))
+    link = radar_url(radar) if radar and severity.flagged else ""
+    return Banner(severity.flagged, title, tuple(entries), link)
 
 
 def _banner_html(banner: Banner) -> str:
@@ -137,12 +190,23 @@ def _banner_html(banner: Banner) -> str:
     lines = []
     if banner.title:
         lines.append(f'<b style="color:{title_color}">{escape(banner.title)}</b>')
-    for i, (strong, detail) in enumerate(banner.entries):
+    for i, (strong, detail, url) in enumerate(banner.entries):
         if strong:
             icon = "\u26a0\ufe0f " if banner.flagged and i == 0 else ""
-            lines.append(f'<b style="color:{title_color}">{icon}{escape(strong)}</b>')
+            text = f"{icon}{escape(strong)}"
+            if url:
+                text = (
+                    f'<a href="{escape(url, quote=True)}" style="color:{title_color};'
+                    f'text-decoration:underline">{text}</a>'
+                )
+            lines.append(f'<b style="color:{title_color}">{text}</b>')
         if detail:
             lines.append(f'<span style="font-size:12px">{escape(detail)}</span>')
+    if banner.radar_url:
+        lines.append(
+            f'<b style="color:{title_color}"><a href="{escape(banner.radar_url, quote=True)}" '
+            f'style="color:{title_color};text-decoration:underline">Radar</a></b>'
+        )
     return (
         f'<tr><td class="{cls}" style="background:{bg};border:1px solid {border};border-top:0;'
         "border-radius:0 0 12px 12px;padding:10px 14px;font-size:13px;line-height:1.45;"
@@ -194,8 +258,12 @@ def _render_plain(
     image_days: int | None,
     banner: Banner | None,
     conditions: Conditions | None = None,
+    radar: str = "",
+    note: str | None = None,
 ) -> str:
     blocks = ["\n".join(banner.plain_lines())] if banner else []
+    if note:
+        blocks.append(note)
     if conditions:
         blocks.append(widget_plain(conditions))
     for g in graphics:
@@ -208,14 +276,17 @@ def _render_plain(
         lines.append(f"View on weather.gov: {g.image_url}")
         blocks.append("\n".join(lines))
     footer = (
-        f"NWS {office_name}: {office_url(office)}\nStorm Prediction Center: {SPC_URL}\n"
-        + _footer_note(office_name, image_days)
+        f"NWS {office_name}: {office_url(office)}\n"
+        f"Forecast discussion: {afd_url(office)}\n"
+        f"Radar: {radar_url(radar)}\n"
+        f"Storm Prediction Center: {SPC_URL}\n" + _footer_note(office_name, image_days)
     )
     return "\n\n".join([*blocks, footer]) + "\n"
 
 
-def _graphic_block(g: Graphic, src: str, tz: str, is_new: bool) -> str:
-    """Layout B: text block, full-width image, link row with a divider, spacer."""
+def _graphic_block(g: Graphic, src: str, tz: str, is_new: bool, href: str) -> str:
+    """Layout B: text block, full-width image (a link to `href`, the full-size image), link row
+    with a divider, spacer."""
     title = escape(g.title)
     badge = (
         '<span class="badge" style="display:inline-block;background:#fff4dc;color:#8a4b00;'
@@ -235,7 +306,7 @@ def _graphic_block(g: Graphic, src: str, tz: str, is_new: bool) -> str:
     return f"""<tr><td style="padding:4px 10px 10px">
 <div class="c-title" style="font-size:18px;font-weight:700;color:{NAVY}">{title}{badge}</div>
 <div class="c-meta" style="font-size:12px;color:{META};margin-top:4px"><span style="color:{AMBER}">&#9679;</span>&nbsp; Valid until {format_valid_until(g.end, tz)}</div>{desc}</td></tr>
-<tr><td style="padding:0"><img src="{escape(src, quote=True)}" alt="{alt}" width="100%" style="display:block;width:100%;height:auto;border:0;font-size:13px;color:{META}"></td></tr>
+<tr><td style="padding:0"><a href="{escape(href, quote=True)}" style="display:block;text-decoration:none;border:0"><img src="{escape(src, quote=True)}" alt="{alt}" width="100%" style="display:block;width:100%;height:auto;border:0;font-size:13px;color:{META}"></a></td></tr>
 <tr><td class="bd-line" style="padding:8px 10px 22px;border-bottom:1px solid {LINE}"><a class="c-link" href="{url}" style="color:{LINK};text-decoration:none;font-weight:600;font-size:13px">View on weather.gov&nbsp;&rarr;</a></td></tr>
 <tr><td style="height:14px;font-size:0;line-height:0">&nbsp;</td></tr>"""
 
@@ -252,12 +323,27 @@ def _render_html(
     banner: Banner | None,
     conditions: Conditions | None = None,
     icon_src: Callable[[str], str] | None = None,
+    hosted_urls: dict[str, str] | None = None,
+    radar: str = "",
+    note: str | None = None,
 ) -> str:
     local = _local(now, tz)
     stamp = f"{local:%a %b} {local.day} \u00b7 {_clock(local)}"
     name = escape(office_name)
     widget = widget_html(conditions, icon_src) if conditions and icon_src else ""
-    blocks = "\n".join(_graphic_block(g, src_for(g), tz, g.number in new_numbers) for g in graphics)
+    note_row = (
+        f'<tr><td class="c-meta" style="padding:0 10px 10px;font-size:12px;line-height:1.45;color:{META}">'
+        f"{escape(note)}</td></tr>\n"
+        if note
+        else ""
+    )
+    hosted = hosted_urls or {}
+    blocks = "\n".join(
+        _graphic_block(
+            g, src_for(g), tz, g.number in new_numbers, hosted.get(g.image_url, g.image_url)
+        )
+        for g in graphics
+    )
     note = escape(_footer_note(office_name, image_days))
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -272,10 +358,12 @@ def _render_html(
 <tr><td align="center" style="padding:8px 0 0">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px">
 {_header_html(office_name, stamp, banner)}
-{widget}
+{note_row}{widget}
 {blocks}
 <tr><td class="c-meta" style="padding:6px 8px 26px;text-align:center;font-size:12px;line-height:1.7;color:#8a94a3">
 <a class="c-link" href="{escape(office_url(office), quote=True)}" style="color:{LINK};text-decoration:none;font-weight:600">NWS {name}</a> &nbsp;&middot;&nbsp;
+<a class="c-link" href="{escape(afd_url(office), quote=True)}" style="color:{LINK};text-decoration:none;font-weight:600">Forecast discussion</a> &nbsp;&middot;&nbsp;
+<a class="c-link" href="{escape(radar_url(radar), quote=True)}" style="color:{LINK};text-decoration:none;font-weight:600">Radar</a> &nbsp;&middot;&nbsp;
 <a class="c-link" href="{SPC_URL}" style="color:{LINK};text-decoration:none;font-weight:600">Storm Prediction Center</a><br>
 {note}</td></tr>
 </table></td></tr></table>
@@ -300,12 +388,22 @@ def render_email(
     place_name: str = "Edmond",
     conditions: Conditions | None = None,
     asset_base_url: str | None = None,
+    radar: str = DEFAULT_RADAR,
+    note: str | None = None,
 ) -> EmailMessage:
     """Build the multipart email. `image_days` is shown in the footer (hosted mode only).
-    Widget icons link to `asset_base_url` when set, else they are attached as CID parts."""
+    `note` is an optional quiet line under the header/banner (why it was sent, or that risk
+    dropped). Widget icons link to `asset_base_url` when set, else they are attached as CID parts."""
     msg = EmailMessage()
-    banner = build_banner(severity, place_name, now, tz)
-    msg["Subject"] = format_subject(office, now, tz, flagged=bool(severity and severity.flagged))
+    banner = build_banner(severity, place_name, now, tz, radar)
+    new_count = sum(1 for g in graphics if g.number in new_numbers)
+    msg["Subject"] = format_subject(
+        office,
+        now,
+        tz,
+        flagged=bool(severity and severity.flagged),
+        lead=subject_lead(severity, new_count, now, tz),
+    )
     msg["From"] = sender
     msg["To"] = to
     msg["Date"] = email.utils.format_datetime(now)
@@ -340,6 +438,8 @@ def render_email(
             image_days,
             banner,
             conditions,
+            radar,
+            note,
         )
     )
     html = _render_html(
@@ -354,6 +454,9 @@ def render_email(
         banner,
         conditions,
         icon_src if conditions else None,
+        hosted_urls,
+        radar,
+        note,
     )
     msg.add_alternative(html, subtype="html")
     html_part = msg.get_payload()[1]
@@ -378,6 +481,8 @@ def render_html_preview(
     severity: Severity | None = None,
     place_name: str = "Edmond",
     conditions: Conditions | None = None,
+    radar: str = DEFAULT_RADAR,
+    note: str | None = None,
 ) -> str:
     """HTML with downloaded images and widget icons inlined as data: URIs."""
 
@@ -392,7 +497,7 @@ def render_html_preview(
         maintype, subtype = image_type(data)
         return f"data:{maintype}/{subtype};base64,{base64.b64encode(data).decode('ascii')}"
 
-    banner = build_banner(severity, place_name, now, tz)
+    banner = build_banner(severity, place_name, now, tz, radar)
     return _render_html(
         office,
         office_name,
@@ -405,4 +510,7 @@ def render_html_preview(
         banner,
         conditions,
         icon_src,
+        None,
+        radar,
+        note,
     )

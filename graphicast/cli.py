@@ -19,7 +19,12 @@ Slot run (first run in a slot, or --force / --ignore-schedule), steps 1-6:
    is rendered (a send or --dry-run), never in a watch run that sends nothing; a failure only
    means the email has no widget.
 6. Save state: the processed slot, after a send the new fingerprint and per-graphic hashes
-   (used to tag changed graphics NEW), and the severity baseline whenever it was assessed ok.
+   (used to tag changed graphics NEW), the severity baseline whenever it was assessed ok, and
+   after a send the severity snapshot of that email (`sent_severity`, never on a dry run).
+
+A short note under the email header says why a rise-triggered email was sent (outside the
+schedule, or since the last check), else, softly, that the risk or an alert has dropped versus
+`sent_severity`. A drop never causes a send by itself.
 
 Exit codes: 0 success (including skip and no change), 1 fetch/publish/send failure,
 2 configuration error.
@@ -46,6 +51,8 @@ from graphicast.schedule import should_run
 from graphicast.severity import (
     Severity,
     assess_official,
+    lowered_note,
+    rise_note,
     severity_rose,
     snapshot,
     with_mentions,
@@ -103,6 +110,7 @@ def _write_dry_run(
     new_numbers: frozenset[int],
     severity: Severity | None = None,
     conditions: Conditions | None = None,
+    note: str | None = None,
 ) -> None:
     """Write the email (.eml), a self-contained HTML preview and the converted images."""
     jpegs = {url: data for url, (data, _ext) in converted.items()}
@@ -118,8 +126,10 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        radar=cfg.radar,
         conditions=conditions,
         asset_base_url=cfg.asset_base_url,
+        note=note,
     )
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +148,9 @@ def _write_dry_run(
         new_numbers=new_numbers,
         severity=severity,
         place_name=cfg.place_name,
+        radar=cfg.radar,
         conditions=conditions,
+        note=note,
     )
     (out / "email.html").write_text(preview, encoding="utf-8")
     log.info("wrote %s, %s and %s", out / "email.eml", out / "email.html", images_dir)
@@ -208,6 +220,15 @@ def _pipeline(
     else:
         send_it, outcome = False, "no change"
 
+    # The note under the header: a rise note when the rise is why this email goes out (graphics
+    # changing at the same time makes the reason "graphics changed", so no rise note), else the
+    # soft "risk lowered" note versus the last sent email. The latter never causes a send.
+    note = None
+    if severity is not None:
+        if rose and not args.force and (watch or fp == previous):
+            note = rise_note(severity, saved.get("severity"), off_schedule=watch)
+        note = note or lowered_note(severity, saved.get("sent_severity"))
+
     converted = convert_all(images) if active else {}
     # The weather widget is fetched only when an email is about to be rendered.
     conditions = None
@@ -216,7 +237,9 @@ def _pipeline(
 
     if args.dry_run:
         if active:
-            _write_dry_run(args.out, cfg, active, converted, now, new_numbers, severity, conditions)
+            _write_dry_run(
+                args.out, cfg, active, converted, now, new_numbers, severity, conditions, note
+            )
             outcome = f"{len(active)} graphics (source={source})"
         log.info("result: dry-run, %s", outcome)
         return 0
@@ -256,8 +279,10 @@ def _pipeline(
             image_days=cfg.image_days if hosted_urls is not None else None,
             severity=severity,
             place_name=cfg.place_name,
+            radar=cfg.radar,
             conditions=conditions,
             asset_base_url=cfg.asset_base_url,
+            note=note,
         )
         if cfg.subject_prefix:
             msg.replace_header("Subject", f"{cfg.subject_prefix} {msg['Subject']}")
@@ -275,6 +300,8 @@ def _pipeline(
     entry = dict(saved)
     if send_it or (not active and fp != previous):
         entry.update(fingerprint=fp, sent_at=now.astimezone(UTC).isoformat(), graphics=hashes)
+    if send_it and severity is not None and severity.ok:
+        entry["sent_severity"] = snapshot(severity)  # basis for the "risk lowered" note
     if severity is not None and severity.ok:
         entry["severity"] = snapshot(severity)
     if entry != saved:

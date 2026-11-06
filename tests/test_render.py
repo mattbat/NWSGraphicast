@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email
+import re
 from datetime import UTC, datetime
 from email import policy
 
@@ -11,6 +12,7 @@ from graphicast.render import (
     image_type,
     render_email,
     render_html_preview,
+    subject_lead,
 )
 from graphicast.severity import Alert, Outlook, Severity
 
@@ -312,7 +314,7 @@ def test_layout_b_has_no_cards_and_full_width_image():
     html = html_of(render([g()], {}))
     assert "box-shadow" not in html and "bg-card" not in html
     assert "border:1px solid #e4eaee" not in html
-    assert 'style="padding:0"><img' in html
+    assert 'style="padding:0"><a href="https://x/1.png"' in html and "<img" in html
     assert "display:block;width:100%;height:auto;border:0" in html
     assert "border-radius:10px" not in html
     assert "padding:8px 10px 22px;border-bottom:1px solid #e4eaee" in html
@@ -338,7 +340,9 @@ def test_warning_banner_for_flagged_outlook():
     assert "Graphics mention: tornadoes, large hail" in html
     assert "border-bottom:3px solid #f5a524" not in html
     assert "border-radius:12px 12px 0 0" in html
-    assert msg["Subject"].startswith("\u26a0\ufe0f NWS OUN Graphicast")
+    assert msg["Subject"].startswith(
+        "\u26a0\ufe0f Enhanced Risk Saturday \u00b7 NWS OUN Graphicast"
+    )
 
 
 def test_warning_banner_for_alert_only():
@@ -410,3 +414,138 @@ def test_preview_includes_banner_and_flag_state():
     sev = Severity(outlooks=(outlook(),))
     assert 'class="bn-warn"' in preview_of([g()], {}, severity=sev)
     assert "bn-" not in preview_of([g()], {}).replace(".bn-", "")
+
+
+# --- links ----------------------------------------------------------------------------------
+
+SPC1 = "https://www.spc.noaa.gov/products/outlook/day1otlk.html"
+RADAR = "https://radar.weather.gov/station/KTLX/standard"
+AFD = (
+    "https://forecast.weather.gov/product.php?site=OUN&issuedby=OUN"
+    "&product=AFD&format=txt&version=1&glossary=1"
+)
+
+
+def test_graphic_image_links_to_weather_gov_when_embedded():
+    msg = render([g(url="https://x/1.png")], {"https://x/1.png": PNG})
+    html = html_of(msg)
+    assert re.search(r'<a href="https://x/1.png" style="display:block[^"]*"><img src="cid:', html)
+    assert 'href="cid:' not in html
+
+
+def test_graphic_image_links_to_hosted_jpeg():
+    hosted = {"https://x/1.png": "https://raw.example/20261106T120000Z/1.jpg"}
+    html = html_of(render([g()], {}, hosted_urls=hosted))
+    assert '<a href="https://raw.example/20261106T120000Z/1.jpg" style="display:block' in html
+    assert '<img src="https://raw.example/20261106T120000Z/1.jpg"' in html
+
+
+def test_preview_image_link_is_not_a_data_uri():
+    html = preview_of([g()], {"https://x/1.png": PNG})
+    assert '<a href="https://x/1.png" style="display:block' in html
+    assert 'href="data:' not in html
+
+
+def test_banner_outlook_and_alert_links():
+    api = "https://api.weather.gov/alerts/urn:oid:1"
+    sev = Severity(
+        outlooks=(outlook(2, "Slight", 1), outlook(1, "Marginal", 3)),
+        alerts=(Alert("Tornado Watch", "Until 9 PM", api), Alert("Flash Flood Warning", "x")),
+    )
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    assert f'<a href="{SPC1}" style="color:#b42318;text-decoration:underline">' in html
+    assert 'href="https://www.spc.noaa.gov/products/outlook/day3otlk.html"' in html
+    assert f'<a href="{api}" style="color:#b42318' in html
+    assert ".bn-warn b,.bn-warn a{color:#ff9b8f" in html
+    lines = msg.get_body(preferencelist=("plain",)).get_content().splitlines()
+    assert lines[lines.index("!! Tornado Watch") + 1] == api
+    assert lines[lines.index("!! Flash Flood Warning") + 1] == "!! x"
+    assert SPC1 in lines
+
+
+def test_alert_without_url_has_no_link():
+    sev = Severity(alerts=(Alert("Tornado Watch", "Until 9 PM"),))
+    msg = render([g()], {}, severity=sev)
+    html = html_of(msg)
+    banner = html[html.index('class="bn-warn"') : html.index("</td></tr>", html.index("Until"))]
+    assert banner.count("<a href") == 1 and ">Radar</a>" in banner  # no alert link
+    top = msg.get_body(preferencelist=("plain",)).get_content().split("\n\n")[0].splitlines()
+    assert top[:2] == ["!! Tornado Watch", "!! Until 9 PM"]
+
+
+def test_radar_in_flagged_banner_only():
+    msg = render([g()], {}, severity=Severity(outlooks=(outlook(),)))
+    top = msg.get_body(preferencelist=("plain",)).get_content().split("\n\n")[0].splitlines()
+    assert top[-1] == f"Radar: {RADAR}"
+    assert f'<a href="{RADAR}" style="color:#b42318' in html_of(msg)
+    msg = render([g()], {}, severity=Severity(outlooks=(outlook(1, "Marginal", 1),)))
+    assert msg.get_body(preferencelist=("plain",)).get_content().count(RADAR) == 1  # footer
+    assert html_of(msg).count(RADAR) == 1
+
+
+def test_footer_links_html_and_plain():
+    msg = render([g()], {}, radar="kfdr")
+    html = html_of(msg)
+    footer = html[html.index("Forecast discussion") - 400 :]
+    tags = (">NWS Norman<", ">Forecast discussion<", ">Radar<", ">Storm Prediction Center<")
+    order = [footer.index(t) for t in tags]
+    assert order == sorted(order)
+    assert f'href="{AFD.replace("&", "&amp;")}"' in html
+    assert 'href="https://radar.weather.gov/station/KFDR/standard"' in html
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert f"Forecast discussion: {AFD}" in plain
+    assert "Radar: https://radar.weather.gov/station/KFDR/standard" in plain
+    assert preview_of([g()], {}).count(RADAR) == 1
+
+
+# --- Subject lead and note line ------------------------------------------------------------
+
+
+def test_subject_lead_phrase_after_flag():
+    got = format_subject("oun", NOW, "America/Chicago", flagged=True, lead="Tornado Warning")
+    assert got == "⚠️ Tornado Warning · NWS OUN Graphicast — Fri Nov 6, 5:14 AM"
+    got = format_subject("oun", NOW, "America/Chicago", lead="1 new graphic")
+    assert got == "1 new graphic · NWS OUN Graphicast — Fri Nov 6, 5:14 AM"
+
+
+def test_subject_lead_precedence():
+    tz = "America/Chicago"
+    enh = outlook(3, "Enhanced", 1, NOW)
+    slgt = outlook(2, "Slight", 2)
+    one = (Alert("Tornado Warning", "h"),)
+    two = (*one, Alert("Flash Flood Watch", "h"))
+    assert subject_lead(None, 0, NOW, tz) is None
+    assert subject_lead(Severity(), 0, NOW, tz) is None
+    assert subject_lead(Severity(), 1, NOW, tz) == "1 new graphic"
+    assert subject_lead(Severity(), 3, NOW, tz) == "3 new graphics"
+    assert subject_lead(Severity((slgt, enh), one), 2, NOW, tz) == "Tornado Warning"
+    assert subject_lead(Severity((slgt, enh), two), 0, NOW, tz) == "Tornado Warning +1"
+    assert subject_lead(Severity((slgt, enh)), 2, NOW, tz) == "Enhanced Risk today"
+    assert subject_lead(Severity((slgt,)), 0, NOW, tz) == "Slight Risk Saturday"
+    # Marginal alone is not flagged, so new graphics lead instead
+    assert subject_lead(Severity((outlook(1, "Marginal"),)), 2, NOW, tz) == "2 new graphics"
+
+
+def test_render_email_subject_uses_new_count_and_severity():
+    msg = render([g(1), g(2, url="https://x/2.png")], {}, new_numbers=frozenset({2}))
+    assert msg["Subject"].startswith("1 new graphic · NWS OUN Graphicast")
+    sev = Severity(alerts=(Alert("Tornado Warning", "h"),))
+    msg = render([g()], {}, severity=sev)
+    assert msg["Subject"].startswith("⚠️ Tornado Warning · NWS OUN")
+
+
+def test_note_in_html_and_plain_escaped():
+    note = "Sent outside the usual schedule: new <b>Tornado</b> Warning."
+    msg = render([g()], {}, note=note)
+    html = html_of(msg)
+    assert "new &lt;b&gt;Tornado&lt;/b&gt; Warning." in html
+    assert "<b>Tornado</b>" not in html
+    assert 'class="c-meta" style="padding:0 10px 10px;font-size:12px' in html
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert note in plain
+    assert "new &lt;b&gt;Tornado&lt;/b&gt; Warning." in preview_of([g()], {}, note=note)
+
+
+def test_no_note_means_no_note_row():
+    assert "padding:0 10px 10px;font-size:12px" not in html_of(render([g()], {}))

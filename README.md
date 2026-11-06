@@ -113,6 +113,7 @@ configuration.
 | `GRAPHICAST_LAT` | `35.6528` | Latitude of the point checked for severe weather (Edmond, OK) |
 | `GRAPHICAST_LON` | `-97.4781` | Longitude of that point |
 | `GRAPHICAST_PLACE_NAME` | `Edmond` | Place named in the banner ("outlook covers Edmond") |
+| `GRAPHICAST_RADAR` | `KTLX` | Radar station for the "Radar" link (`radar.weather.gov/station/<station>/standard`; Oklahoma City by default) |
 | `GRAPHICAST_SEVERITY` | on | Set to `off` to disable the severe-weather flag entirely (no fetches, no flag, no banner) |
 | `GRAPHICAST_WIDGET` | on | Set to `off` to leave the weather widget out of the email (no weather fetches) |
 | `GRAPHICAST_ASSET_BASE_URL` | none | Public URL prefix of `assets/icons` for the widget icons (the workflows pin it to the commit). Unset, the icons are embedded in the email instead |
@@ -122,18 +123,35 @@ configuration.
 The email is laid out without cards: a compact navy header bar (office name on the left, date and
 time on the right, with an amber bottom edge), then for each graphic a text block with the title,
 a "Valid until" time in your local time zone and the description, followed by the image at the
-full width of the email and a "View on weather.gov" link. The page is white (near-black in dark
+full width of the email and a "View on weather.gov" link. Tapping an image opens it full size
+(the hosted JPEG when hosted, otherwise the weather.gov image). The footer reads "NWS Norman ·
+Forecast discussion · Radar · Storm Prediction Center" (the discussion is the office's Area
+Forecast Discussion), in the plain-text version too. The page is white (near-black in dark
 mode, through `prefers-color-scheme`). A graphic that is new or changed since the last send
 carries a **NEW** tag (the first run, or a run with no saved per-graphic state, tags nothing). A
 hidden preheader lists the graphic titles, with NEW ones first, so the inbox preview is useful.
 If a hosted image has expired, a short caption shows instead of a broken image. When there is
 severe weather to report, a banner joins the bottom of the header (see below).
 
+**Subject.** The subject can carry a short lead phrase between the optional warning sign and
+"NWS OUN Graphicast" that says why to open it, e.g. `⚠️ Enhanced Risk today · NWS OUN Graphicast
+— Fri Nov 6, 6:00 PM`. When flagged, the lead is the first active alert event (with ` +N` for
+more alerts), else the highest outlook ("Enhanced Risk today", "Slight Risk Saturday"). When not
+flagged but graphics are NEW, it is "1 new graphic" / "3 new graphics". Otherwise there is no lead.
+
+**Note line.** One quiet line of small grey text sits just under the header and banner, above the
+weather widget (plain text: the same line after the banner lines). It is one of: why an email
+was sent because the risk rose ("Sent outside the usual schedule: severe risk rose from Marginal
+to Enhanced (3/5)." or "...: new Tornado Warning." on a watch run; "Severe risk rose since the
+last check: ..." when a slot run sends for that reason), or a soft "risk lowered" note (see
+below). If both would apply, only the rise note is shown.
+
 **Weather widget.** Under the header (and banner) sits a compact blue card with the current
 conditions for `GRAPHICAST_LAT` / `GRAPHICAST_LON` (Edmond by default) from api.weather.gov: the
 temperature and a short description with a feels-like value, today's high and low, the next six
 hours with an icon, temperature and (when any hour is 20% or more) a chance of rain, and a row
-with sunrise, sunset, wind and the highest rain chance over the next 12 hours. The temperature
+with sunrise, sunset, wind and the highest rain chance over the next 12 hours, and a line with
+the next forecast period (for example "Tonight: Showers likely, low 52°"). The temperature
 comes from the nearest recent station observation, falling back to the hourly forecast; sunrise
 and sunset are computed locally. The card keeps its own colours in dark mode, and its text is
 readable with images blocked. It is fetched only when an email is rendered, and if the weather
@@ -169,6 +187,12 @@ header, when the outlook is **Slight (2/5) or higher** or there is any of the al
 Marginal outlook or keyword mentions alone only add a quieter "Heads up" banner, with no warning
 sign in the subject.
 
+**Links.** In the banner, each outlook line links to that day's SPC outlook page
+(`.../outlook/day1otlk.html`, `day2otlk`, `day3otlk`) and each alert line links to the alert:
+the forecast.weather.gov page for `GRAPHICAST_LAT` / `GRAPHICAST_LON`, which lists the active
+hazards with their full text (the feed's own per-alert links are JSON, unreadable on a phone). A flagged banner ends with a Radar link (`GRAPHICAST_RADAR`).
+Plain text puts each URL on the line after its text. The alert URL is not part of the saved state.
+
 **When it emails.** Besides the usual "graphics changed" trigger, a run sends when **the risk
 rises** versus the baseline saved in the state file: the outlook reaches Slight or higher and is
 above the saved level, or an alert event appears that was not in the saved set. Marginal alone
@@ -179,6 +203,13 @@ logged, the run carries on, and the previous baseline is kept. Severity is not p
 change fingerprint, and a rise with no active graphics sends nothing (there is nothing to show).
 Watch runs (every 15 minutes between slots) use this same rule, so a rise emails at any
 hour. The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
+
+**Risk lowered.** The baseline above moves on every run, so a drop is silent. Separately, each
+successful send records the severity of that email as `sent_severity` in the state file (never on
+a `--dry-run`). When an email is rendered and the assessment is ok, a note is added if the max
+level is below the one in `sent_severity` ("Severe risk has dropped to Marginal since the last
+email.") or alerts from that email are no longer active ("No longer in effect: Tornado Watch.").
+It never causes a send by itself, and state without `sent_severity` gets no note.
 
 ## Data sources
 

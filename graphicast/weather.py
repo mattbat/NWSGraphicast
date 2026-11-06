@@ -98,6 +98,7 @@ class Conditions:
     wind: str  # "NNE 8", "S 10–15", "Calm"
     pop: int  # max hourly precip % over the next 12 h
     is_day: bool
+    outlook: str = ""  # "Tonight: Partly Cloudy, low 40°"; "" when unavailable
 
 
 def sun_times(day: date, lat: float, lon: float, tz: str) -> tuple[datetime, datetime]:
@@ -158,6 +159,20 @@ def _hi_lo(periods: list[dict], tz: str) -> str:
         return f"H:{p0['temperature']}°  L:{p1['temperature']}°"
     day = datetime.fromisoformat(p1["startTime"]).astimezone(ZoneInfo(tz))
     return f"L:{p0['temperature']}° · {day:%a} H:{p1['temperature']}°"
+
+
+def _outlook(periods: list[dict]) -> str:
+    """One line for the forecast period after the first (the one hi/lo is based on); "" if the
+    data is missing or malformed."""
+    try:
+        p = periods[1]
+        name, short = str(p["name"]).strip(), str(p["shortForecast"]).strip().rstrip(".")
+        temp = int(p["temperature"])
+        kind = "high" if p["isDaytime"] else "low"
+        return f"{name}: {short}, {kind} {temp}°" if name and short else ""
+    except Exception as exc:
+        log.debug("outlook unavailable: %s", exc)
+        return ""
 
 
 def _json(get: Callable[..., bytes], url: str) -> dict:
@@ -280,4 +295,5 @@ def _fetch(
         wind=_wind(forecast[0]),
         pop=max(_pop(p) for p in hourly[start : start + POP_WINDOW]),
         is_day=is_day,
+        outlook=_outlook(forecast),
     )

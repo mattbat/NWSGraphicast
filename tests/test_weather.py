@@ -62,6 +62,7 @@ def test_fetch_on_fixtures(fake_get):
     assert c.hours[1].label == "9AM"
     assert c.wind == "NNE 8"
     assert c.pop == 0 and c.is_day
+    assert c.outlook == "Tonight: Partly Cloudy, low 40°"
     assert (c.sunrise.hour, c.sunset.hour) == (6, 17)
 
 
@@ -242,3 +243,30 @@ def test_every_icon_the_mapping_can_return_exists():
     assert ICON_NAMES
     for name in ICON_NAMES:
         assert (icons / f"{name}.png").exists(), name
+
+
+def test_outlook_day_period_uses_high_and_night_first_uses_next_day(fake_get):
+    fc = load("forecast.json")
+    periods = fc["properties"]["periods"]
+    fc["properties"]["periods"] = [periods[1], periods[2]]
+    c = fetch(fake_get, served(**{f"{BASE}/forecast": jb(fc)}))
+    assert c.outlook == "Saturday: Mostly Sunny, high 59°"
+
+
+@pytest.mark.parametrize("mutate", ["short", "missing", "temp", "single"])
+def test_outlook_malformed_is_empty_and_widget_survives(fake_get, mutate):
+    fc = load("forecast.json")
+    periods = fc["properties"]["periods"]
+    if mutate == "short":
+        periods[1]["shortForecast"] = ""
+    elif mutate == "missing":
+        del periods[1]["name"]
+    elif mutate == "temp":
+        periods[1]["temperature"] = None
+    else:
+        del periods[1:]
+        c = fetch(fake_get, served(**{f"{BASE}/forecast": jb(fc)}))
+        assert c is None  # hi/lo already needs two periods; the widget is simply absent
+        return
+    c = fetch(fake_get, served(**{f"{BASE}/forecast": jb(fc)}))
+    assert c is not None and c.outlook == "" and c.temp == 45

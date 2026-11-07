@@ -139,7 +139,7 @@ def test_dry_run_no_active(tmp_path, fake_get, mesonet_text, nws_text):
     assert (
         run(["--ignore-schedule", "--dry-run", "--out", str(out)], state, get, Sender(), late) == 0
     )
-    assert not out.exists()
+    assert "No Graphicast images were available" in (out / "email.html").read_text()
 
 
 def test_force_sends_unchanged(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -222,12 +222,15 @@ def test_no_active_graphics_stores_empty_fingerprint(tmp_path, fake_get, mesonet
     late = datetime(2030, 1, 1, tzinfo=UTC)
     send = Sender()
     assert run(["--ignore-schedule"], state, get, send, late) == 0
-    assert send.msgs == []
+    # No graphics is sent as a warning email, since it may signal an error.
+    assert len(send.msgs) == 1
+    msg = send.msgs[0][0]
+    assert msg["Subject"].startswith("⚠️ No graphics available")
+    assert "No Graphicast images were available" in plain_of(msg)
     assert json.loads(state.read_text())["offices"]["oun"]["fingerprint"] == EMPTY_FINGERPRINT
-    # second time: already empty, nothing changes
-    before = state.read_text()
+    # the next slot run warns again
     run(["--ignore-schedule"], state, get, send, late)
-    assert state.read_text() == before
+    assert len(send.msgs) == 2
 
 
 def test_naive_now_and_verbose(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -563,11 +566,11 @@ def test_prefix_stays_outermost_with_warning(
 def test_severity_rise_with_no_active_graphics_sends_nothing(
     tmp_path, fake_get, mesonet_text, nws_text, caplog
 ):
-    late = datetime(2030, 1, 1, tzinfo=UTC)
+    late = datetime(2030, 1, 1, 18, 30, tzinfo=UTC)  # 12:30 CST, slot already processed
     state, send = tmp_path / "state.json", Sender()
-    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late)
+    seed_state(state, level=0, last_slot="2030-01-01T12:00:00-06:00")
     caplog.set_level("INFO", logger="graphicast")
-    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, "ENH")
+    watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, label="ENH")
     assert send.msgs == [] and "no active graphics to send" in caplog.text
     assert saved_severity(state)["max_level"] == 3
 

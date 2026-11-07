@@ -2,7 +2,7 @@
 
 NWSGraphicast emails you the current National Weather Service "Graphicast" forecast images for a
 forecast office (default: Norman, OK, `oun`). An email goes out at every 6am, 12pm and 6pm Central
-slot, whether or not the graphics changed (changed graphics are tagged NEW). The images are hosted on an `images` branch and linked,
+slot, whether or not the graphics changed (changed graphics are tagged NEW). If NWS has no active graphics, a "No graphics available" warning email still goes out (with the weather widget), since that may mean an error. The images are hosted on an `images` branch and linked,
 so each email is only a few KB.
 
 ## How it runs

@@ -13,7 +13,8 @@ Slot run (first run in a slot, or --force / --ignore-schedule), steps 1-6:
 2. Fetch the office's graphics (Mesonet, falling back to the NWS XML feed).
 3. Keep the graphics active now, download their images, and fingerprint the set.
 4. Add keyword mentions from the active graphics to the severity result.
-5. If there are active graphics, always (every slot run, changed or not) convert the
+5. Always (every slot run, changed or not; with no active graphics a warning email goes out
+   with the weather widget, since that may signal an error) convert the
    images to JPEG, publish them (hosted mode) or embed them (inline mode), and send the email.
    The fingerprint comparison only decides which graphics are tagged NEW.
    The weather widget (api.weather.gov conditions for the point) is fetched just before an email
@@ -65,6 +66,10 @@ from graphicast.weather import Conditions, fetch_conditions
 log = logging.getLogger("graphicast")
 
 # Placeholder addresses so --dry-run can render an email without SMTP settings.
+NO_GRAPHICS_NOTE = (
+    "No Graphicast images were available from NWS this time. This may mean a problem "
+    "with the NWS feed or this tool."
+)
 DRY_RUN_SENDER = "graphicast@example.invalid"
 DRY_RUN_RECIPIENT = "recipient@example.invalid"
 
@@ -203,10 +208,13 @@ def _pipeline(
             " (rose)" if rose else "",
         )
 
-    if not active:
+    if not active and watch:
         send_it, outcome = False, "no active graphics"
-        if rose:
-            log.info("severity rose but there are no active graphics to send")
+        log.info("severity rose but there are no active graphics to send")
+    elif not active:
+        # Missing graphics may mean a fetch problem, so say so loudly instead of staying silent.
+        send_it = True
+        outcome = f"sent warning, no active graphics (source={source})"
     elif args.force:
         send_it, outcome = True, f"sent {len(active)} graphics (source={source}, reason=forced)"
     elif watch:
@@ -232,14 +240,16 @@ def _pipeline(
             note = rise_note(severity, saved.get("severity"), off_schedule=watch)
         note = note or lowered_note(severity, saved.get("sent_severity"))
 
+    if not active:
+        note = NO_GRAPHICS_NOTE + (f" {note}" if note else "")
     converted = convert_all(images) if active else {}
     # The weather widget is fetched only when an email is about to be rendered.
     conditions = None
-    if cfg.widget and active and (send_it or args.dry_run):
+    if cfg.widget and (send_it or args.dry_run):
         conditions = fetch_conditions(cfg.lat, cfg.lon, cfg.place_name, cfg.tz, now, get)
 
     if args.dry_run:
-        if active:
+        if active or not watch:
             _write_dry_run(
                 args.out, cfg, active, converted, now, new_numbers, severity, conditions, note
             )
@@ -287,6 +297,8 @@ def _pipeline(
             asset_base_url=cfg.asset_base_url,
             note=note,
         )
+        if not active:
+            msg.replace_header("Subject", f"⚠️ No graphics available · {msg['Subject']}")
         if cfg.subject_prefix:
             msg.replace_header("Subject", f"{cfg.subject_prefix} {msg['Subject']}")
         try:

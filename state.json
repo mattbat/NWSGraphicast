@@ -1,17 +1,22 @@
 {
   "version": 1,
-  "last_slot": "2026-11-06T18:00:00-06:00",
+  "last_slot": "2026-11-07T06:00:00-06:00",
   "offices": {
     "oun": {
-      "fingerprint": "f917899ff70404e0dbbc5b365160cdb802b38aba219f18c72f7e6ef4a49da02e",
-      "sent_at": "2026-11-06T20:58:38.706264+00:00",
+      "fingerprint": "e7308bc738c88cae40c8b9b3f9cd4d89a94cfe16fef08e98f3717e0e95d149e3",
+      "sent_at": "2026-11-07T13:44:00.042381+00:00",
       "graphics": {
-        "1": "5760a02340dbb688f5cafd7ddddb6837a6569f55a3070098cea50903790e9b4c",
+        "1": "d5678834f934167e89f6a638835945f1c8aaf5b5c84bf2c6ea3a13606b2b05a8",
         "2": "45a47607485325376589e25ef753739e32afe1c70031dfe70b8840c71a4d7f88",
-        "4": "d173418b9c640220a81c0d6677e8e27422295ea82fa406ad5deee877d31842af",
-        "6": "c781b60a1d9ffa456beb6b64efddc3613bf545c61d2bd1e363b7b041413cf012"
+        "4": "1f4570c054ba9c07d62d650b0213a995dd10355d866e5568e98550d0b191e932",
+        "5": "58e95df325bc9f28f9d6a9f0462ac2c1b8730db10ceaa9fdb03c61fc639c5f2d",
+        "6": "0a97b757dd8bbfcd6d1f4fa07770dc9b8572399eeab7bc71aa32db234cf3ae89"
       },
       "severity": {
+        "max_level": 0,
+        "alerts": []
+      },
+      "sent_severity": {
         "max_level": 0,
         "alerts": []
       }

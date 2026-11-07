@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Send even if nothing changed"
+        description: "Send now"
         type: boolean
         default: false
       dry_run:

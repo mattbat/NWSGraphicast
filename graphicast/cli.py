@@ -13,8 +13,9 @@ Slot run (first run in a slot, or --force / --ignore-schedule), steps 1-6:
 2. Fetch the office's graphics (Mesonet, falling back to the NWS XML feed).
 3. Keep the graphics active now, download their images, and fingerprint the set.
 4. Add keyword mentions from the active graphics to the severity result.
-5. If the fingerprint changed, a severity rise was detected, or with --force, convert the
+5. If there are active graphics, always (every slot run, changed or not) convert the
    images to JPEG, publish them (hosted mode) or embed them (inline mode), and send the email.
+   The fingerprint comparison only decides which graphics are tagged NEW.
    The weather widget (api.weather.gov conditions for the point) is fetched just before an email
    is rendered (a send or --dry-run), never in a watch run that sends nothing; a failure only
    means the email has no widget.
@@ -70,7 +71,7 @@ DRY_RUN_RECIPIENT = "recipient@example.invalid"
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="graphicast", description="Email NWS Graphicast images.")
-    p.add_argument("--force", action="store_true", help="send even if nothing changed")
+    p.add_argument("--force", action="store_true", help="send now, ignoring the schedule")
     p.add_argument("--dry-run", action="store_true", help="write out/ files; no send, no state")
     p.add_argument("--ignore-schedule", action="store_true", help="skip the schedule gate")
     p.add_argument("--state", type=Path, default=None, help="state file (overrides config)")
@@ -211,14 +212,16 @@ def _pipeline(
     elif watch:
         send_it = True
         outcome = f"sent {len(active)} graphics (source={source}, reason=severity rose)"
-    elif fp != previous:
-        send_it = True
-        outcome = f"sent {len(active)} graphics (source={source}, reason=graphics changed)"
-    elif rose:
-        send_it = True
-        outcome = f"sent {len(active)} graphics (source={source}, reason=severity rose)"
     else:
-        send_it, outcome = False, "no change"
+        # Slot run: always send. Change detection only feeds the NEW tags and the notes.
+        send_it = True
+        if fp != previous:
+            reason = "graphics changed"
+        elif rose:
+            reason = "severity rose"
+        else:
+            reason = "scheduled"
+        outcome = f"sent {len(active)} graphics (source={source}, reason={reason})"
 
     # The note under the header: a rise note when the rise is why this email goes out (graphics
     # changing at the same time makes the reason "graphics changed", so no rise note), else the

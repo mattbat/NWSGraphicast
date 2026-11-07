@@ -39,7 +39,7 @@ Every run of `python -m graphicast`:
 6. Decide whether to send:
    - With `--force`: always send (if there's at least one active graphic).
    - With **no active graphics**: don't send. Store the empty fingerprint.
-   - If the fingerprint equals `state.offices[office].fingerprint`: don't send ("no change").
+   - Slot runs always send when there are active graphics; the fingerprint comparison only drives the NEW tags (superseded: no more "no change" skip).
    - Otherwise: send.
 7. **Render** the email with images embedded inline (CID). **Send** it via Gmail SMTP, or with
    `--dry-run` write it to `out/` and don't send.

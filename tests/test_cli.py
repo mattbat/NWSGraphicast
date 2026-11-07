@@ -83,12 +83,12 @@ def test_first_run_sends_and_saves_state(tmp_path, fake_get, mesonet_text, nws_t
     assert data["last_slot"] is None
 
 
-def test_second_run_no_change(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
+def test_second_run_no_change_still_sends(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
     get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
     send = Sender()
     run(["--ignore-schedule"], state, get, send, FIXTURE_NOW)
     assert run(["--ignore-schedule"], state, get, send, FIXTURE_NOW) == 0
-    assert len(send.msgs) == 1
+    assert len(send.msgs) == 2
 
 
 def test_changed_image_bytes_sends(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -139,7 +139,7 @@ def test_dry_run_no_active(tmp_path, fake_get, mesonet_text, nws_text):
     assert (
         run(["--ignore-schedule", "--dry-run", "--out", str(out)], state, get, Sender(), late) == 0
     )
-    assert not out.exists()
+    assert "No Graphicast images were available" in (out / "email.html").read_text()
 
 
 def test_force_sends_unchanged(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -222,12 +222,15 @@ def test_no_active_graphics_stores_empty_fingerprint(tmp_path, fake_get, mesonet
     late = datetime(2030, 1, 1, tzinfo=UTC)
     send = Sender()
     assert run(["--ignore-schedule"], state, get, send, late) == 0
-    assert send.msgs == []
+    # No graphics is sent as a warning email, since it may signal an error.
+    assert len(send.msgs) == 1
+    msg = send.msgs[0][0]
+    assert msg["Subject"].startswith("⚠️ No graphics available")
+    assert "No Graphicast images were available" in plain_of(msg)
     assert json.loads(state.read_text())["offices"]["oun"]["fingerprint"] == EMPTY_FINGERPRINT
-    # second time: already empty, nothing changes
-    before = state.read_text()
+    # the next slot run warns again
     run(["--ignore-schedule"], state, get, send, late)
-    assert state.read_text() == before
+    assert len(send.msgs) == 2
 
 
 def test_naive_now_and_verbose(tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW):
@@ -466,20 +469,21 @@ def test_severity_sequence_rises_and_drops(tmp_path, fake_get, mesonet_text, nws
         assert rc == 0
         return len(send.msgs)
 
+    # Every slot run sends now; severity is still recorded run to run.
     assert go(None) == 1  # first run: graphics changed; baseline 0 saved
     assert saved_severity(state) == {"max_level": 0, "alerts": []}
-    assert go("MRGL") == 1  # Marginal 0 -> 1 never emails, but is recorded
+    assert go("MRGL") == 2  # Marginal 0 -> 1 is recorded
     assert saved_severity(state)["max_level"] == 1
-    assert go("SLGT") == 2  # 1 -> 2 rises
+    assert go("SLGT") == 3  # 1 -> 2 rises
     assert "⚠️ Slight Risk Saturday · NWS OUN Graphicast" in send.msgs[-1][0]["Subject"]
-    assert go("SLGT") == 2  # 2 -> 2 steady
-    assert go("ENH") == 3  # 2 -> 3 rises
-    assert go("MRGL") == 3  # 3 -> 1 drops, no send
+    assert go("SLGT") == 4  # 2 -> 2 steady, still sent
+    assert go("ENH") == 5  # 2 -> 3 rises
+    assert go("MRGL") == 6  # 3 -> 1 drops, still sent
     assert saved_severity(state)["max_level"] == 1
-    assert go("SLGT") == 4  # 1 -> 2 again rises
+    assert go("SLGT") == 7  # 1 -> 2 again rises
 
 
-def test_slight_without_baseline_records_but_does_not_send(
+def test_slight_without_baseline_records_and_sends(
     tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
 ):
     state, send = tmp_path / "state.json", Sender()
@@ -488,7 +492,7 @@ def test_slight_without_baseline_records_but_does_not_send(
     del data["offices"]["oun"]["severity"]  # state from before this change
     state.write_text(json.dumps(data))
     rc, _ = sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, "SLGT")
-    assert rc == 0 and len(send.msgs) == 1
+    assert rc == 0 and len(send.msgs) == 2
     assert saved_severity(state) == {"max_level": 2, "alerts": []}
 
 
@@ -518,7 +522,7 @@ def test_new_tornado_watch_sends(tmp_path, fake_get, mesonet_text, nws_text, FIX
     assert saved_severity(state)["alerts"] == ["Tornado Watch"]
     sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW,
             alerts=["Tornado Watch"])  # fmt: skip
-    assert len(send.msgs) == 2  # same watch again: no new email
+    assert len(send.msgs) == 3  # same watch again: slot run still sends
 
 
 def test_severity_failure_keeps_previous_and_run_succeeds(
@@ -529,7 +533,7 @@ def test_severity_failure_keeps_previous_and_run_succeeds(
     err = urllib.error.URLError("down")
     broken = {u: err for u in severity_map()}
     rc, _ = sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, **broken)
-    assert rc == 0 and len(send.msgs) == 1
+    assert rc == 0 and len(send.msgs) == 2
     assert saved_severity(state)["max_level"] == 2
 
 
@@ -562,11 +566,11 @@ def test_prefix_stays_outermost_with_warning(
 def test_severity_rise_with_no_active_graphics_sends_nothing(
     tmp_path, fake_get, mesonet_text, nws_text, caplog
 ):
-    late = datetime(2030, 1, 1, tzinfo=UTC)
+    late = datetime(2030, 1, 1, 18, 30, tzinfo=UTC)  # 12:30 CST, slot already processed
     state, send = tmp_path / "state.json", Sender()
-    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late)
+    seed_state(state, level=0, last_slot="2030-01-01T12:00:00-06:00")
     caplog.set_level("INFO", logger="graphicast")
-    sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, "ENH")
+    watch(tmp_path, fake_get, mesonet_text, nws_text, state, send, late, label="ENH")
     assert send.msgs == [] and "no active graphics to send" in caplog.text
     assert saved_severity(state)["max_level"] == 3
 
@@ -790,7 +794,7 @@ def test_widget_off_skips_points_fetch(tmp_path, fake_get, mesonet_text, nws_tex
     assert rc == 0 and len(send.msgs) == 1 and not points_fetched(get)
 
 
-def test_no_change_run_does_not_fetch_conditions(
+def test_unchanged_slot_run_sends_and_fetches_conditions(
     tmp_path, fake_get, mesonet_text, nws_text, FIXTURE_NOW
 ):
     get, state, _ = setup(tmp_path, fake_get, mesonet_text, nws_text)
@@ -798,7 +802,7 @@ def test_no_change_run_does_not_fetch_conditions(
     rc, get2, send, _ = widget_run(
         tmp_path, fake_get, mesonet_text, nws_text, ["--ignore-schedule"], FIXTURE_NOW, state=state
     )
-    assert rc == 0 and send.msgs == [] and not points_fetched(get2)
+    assert rc == 0 and len(send.msgs) == 1 and points_fetched(get2)
 
 
 def test_watch_without_rise_does_not_fetch_conditions(tmp_path, fake_get, mesonet_text, nws_text):
@@ -885,15 +889,10 @@ def test_lowered_note_on_next_send_and_never_sends_alone(
     state, send = tmp_path / "state.json", Sender()
     sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="ENH")
     assert len(send.msgs) == 1 and sent_severity(state)["max_level"] == 3
-    # The risk drops: no email, baseline follows, sent_severity is untouched.
+    # The risk drops: the next email carries the soft note, then records the new snapshot.
     sev_run(tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="MRGL")
-    assert len(send.msgs) == 1
-    assert saved_severity(state)["max_level"] == 1 and sent_severity(state)["max_level"] == 3
-    # A later (forced) email carries the soft note, then records the new sent snapshot.
-    sev_run(
-        tmp_path, fake_get, mesonet_text, nws_text, state, send, FIXTURE_NOW, label="MRGL",
-        argv=("--force",),
-    )  # fmt: skip
+    assert len(send.msgs) == 2
+    assert saved_severity(state)["max_level"] == 1
     msg = send.msgs[1][0]
     line = "Severe risk has dropped to Marginal since the last email."
     assert line in html_of(msg) and line in plain_of(msg)

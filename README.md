@@ -1,8 +1,8 @@
 # NWSGraphicast
 
 NWSGraphicast emails you the current National Weather Service "Graphicast" forecast images for a
-forecast office (default: Norman, OK, `oun`). An email goes out only when the set of active
-graphics has changed since the last one. The images are hosted on an `images` branch and linked,
+forecast office (default: Norman, OK, `oun`). An email goes out at every 6am, 12pm and 6pm Central
+slot, whether or not the graphics changed (changed graphics are tagged NEW). If NWS has no active graphics, a "No graphics available" warning email still goes out (with the weather widget), since that may mean an error. The images are hosted on an `images` branch and linked,
 so each email is only a few KB.
 
 ## How it runs
@@ -85,7 +85,7 @@ in watch runs too (a run with no rise logs `result: watch (...)` and writes noth
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Render to `out/` only |
-| `--force` | Send even if nothing changed (also skips the schedule gate) |
+| `--force` | Send now (also skips the schedule gate) |
 | `--ignore-schedule` | Run now as a send run regardless of the 6/12/18 send slots |
 | `--state PATH` | State file to use instead of `GRAPHICAST_STATE` |
 | `--out DIR` | Dry-run output directory (default `out`) |

@@ -2,13 +2,17 @@
 
 NWSGraphicast emails you the current National Weather Service "Graphicast" forecast images for a
 forecast office (default: Norman, OK, `oun`). An email goes out at every 6am, 12pm and 6pm Central
-slot, whether or not the graphics changed (changed graphics are tagged NEW). If NWS has no active graphics, a "No graphics available" warning email still goes out (with the weather widget), since that may mean an error. The images are hosted on an `images` branch and linked,
-so each email is only a few KB.
+slot, whether or not the graphics changed (changed graphics are tagged NEW). If NWS has no active graphics, a "No graphics available" warning email still goes out (with the weather widget), since that may mean an error. On the Raspberry Pi the images are embedded in the email; the optional GitHub Actions workflow
+hosts them on an `images` branch and links them instead.
 
 ## How it runs
 
-A GitHub Actions workflow (`.github/workflows/graphicast.yml`) runs the Python package **every
-15 minutes**, and `graphicast/schedule.py` decides what each run does:
+A **Raspberry Pi** runs the Python package from cron **every 15 minutes** (see [Running on a
+Raspberry Pi](#running-on-a-raspberry-pi-exact-timing)), and `graphicast/schedule.py` decides what
+each run does. The GitHub Actions workflow (`.github/workflows/graphicast.yml`) has its schedule
+disabled and now only runs manually (Actions > graphicast > Run workflow); re-add a
+`schedule:` cron there to bring it back.
+
 
 - **Send run:** the first run in each 6am / 12pm / 6pm Central slot fetches the graphics and
   emails them if they changed (or if the severe-weather risk rose).
@@ -17,9 +21,9 @@ A GitHub Actions workflow (`.github/workflows/graphicast.yml`) runs the Python p
   it fetches the graphics and sends an email **at any hour, overnight included**. A watch run
   never uses up a send slot.
 
-Graphics-change emails still happen only at the slots. The last sent state is kept on a `state`
-git branch; it is committed only when it changed, so quiet watch runs add no commits. GitHub can
-delay or skip scheduled runs under load, so a 15-minute check is not a real-time alarm: keep your
+Graphics-change emails still happen only at the slots. The last sent state is kept in a local
+`state.json` on the Pi (in the GitHub workflow it was kept on a `state` git branch). Cron on the Pi
+runs on time, but a 15-minute check is still not a real-time alarm: keep your
 phone's emergency alerts on for short-lived warnings. With `GRAPHICAST_SEVERITY=off`, runs
 outside a slot skip immediately.
 
@@ -201,7 +205,7 @@ baseline. The baseline is updated on every run where all sources answered, inclu
 send nothing, so a drop followed by a rise emails again. If a source fails, the failure is
 logged, the run carries on, and the previous baseline is kept. Severity is not part of the
 change fingerprint, and a rise with no active graphics sends nothing (there is nothing to show).
-Watch runs (every 15 minutes between slots) use this same rule, so a rise emails at any
+Watch runs (every 15 minutes between slots, from Pi cron) use this same rule, so a rise emails at any
 hour. The log line says why an email went out: `reason=graphics changed`, `severity rose` or `forced`.
 
 **Risk lowered.** The baseline above moves on every run, so a drop is silent. Separately, each
@@ -246,7 +250,8 @@ See `LICENSE`.
 
 ## Running on a Raspberry Pi (exact timing)
 
-GitHub's scheduler can start runs hours late. A Pi with cron runs on time.
+This is the production scheduler. GitHub's scheduler started runs hours late, so the schedule moved
+to a Pi, where cron runs on time.
 
 ```bash
 git clone https://github.com/mattbat/NWSGraphicast.git && cd NWSGraphicast
@@ -260,4 +265,4 @@ Needs Python 3.11+. Cron runs every 15 minutes and the program picks the 6am/12p
 slots itself. Images are embedded in the email (no hosting). Log: `~/graphicast/graphicast.log`.
 Keep the clone where it is: `run.sh` runs from it (the weather icons are read from its `assets/`).
 If you move it, run `install.sh` again from the new location.
-Disable the GitHub workflow afterwards so you don't get duplicate emails.
+The GitHub workflow's schedule is already disabled, so there are no duplicate emails.

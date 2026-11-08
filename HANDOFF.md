@@ -1,5 +1,10 @@
 # NWSGraphicast handoff
 
+> **Update (2026-11-08):** The Pi is live and is now the only scheduler (cron every 15 min; it sent
+> the 6am email correctly). The GitHub `graphicast` workflow's `schedule:` is removed (manual
+> `workflow_dispatch` only). The `state` and `images` branches are unused by the Pi and kept only as
+> a fallback. The "next steps" below are done.
+
 Repo: `mattbat/NWSGraphicast`. Work branch: `claude/quirky-galileo-l232g5` (pushed, no PR opened).
 Previous session: https://claude.ai/code/session_014vMVHh9u5PJpDNLbfuccti
 
@@ -36,8 +41,7 @@ Pi cron (chosen), small VPS, hybrid.
   chat), then `run.sh --dry-run --ignore-schedule --out /tmp/preview`, then `run.sh --force`.
 - **Untested:** the cron step of the installer (sandbox had no `crontab`). Dry run and install of
   the venv were verified. Debug from `~/graphicast/graphicast.log` if the user reports problems.
-- After the Pi works: disable the GitHub workflow (Actions, graphicast, Disable) to avoid duplicate
-  emails, and merge the branch (PR not yet opened; only open one if the user asks).
+- Done: the GitHub workflow schedule was removed and the work was merged to `master`.
 - Possible follow-ups: the workflow docs in `docs/PLAN.md` / `docs/IMPLEMENTATION.md` still
   partly describe the old "email only on change" behavior (one line was patched).
 

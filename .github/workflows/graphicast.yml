@@ -1,10 +1,7 @@
 name: graphicast
 on:
-  schedule:
-    # Every 15 minutes. The script decides what each run does (graphicast/schedule.py): the
-    # first run in each 6am/12pm/6pm Central slot is a send run; every other run only checks
-    # for a severe-weather rise and emails if the risk went up.
-    - cron: "*/15 * * * *"
+  # Schedule disabled (was every 15 min: 6am/12pm/6pm sends + severe-weather checks).
+  # Restore a `schedule:` block with `- cron: "*/15 * * * *"` to re-enable.
   workflow_dispatch:
     inputs:
       force:

@@ -243,3 +243,20 @@ red run in Actions and GitHub sends its usual workflow failure email.
 ## License
 
 See `LICENSE`.
+
+## Running on a Raspberry Pi (exact timing)
+
+GitHub's scheduler can start runs hours late. A Pi with cron runs on time.
+
+```bash
+git clone https://github.com/mattbat/NWSGraphicast.git && cd NWSGraphicast
+git checkout claude/quirky-galileo-l232g5   # until merged
+bash deploy/pi/install.sh
+nano ~/graphicast/graphicast.env            # SMTP_USER, SMTP_PASSWORD, EMAIL_TO
+~/graphicast/run.sh --dry-run --ignore-schedule --out /tmp/preview   # no email
+~/graphicast/run.sh --force                                          # real test email
+```
+
+Needs Python 3.11+. Cron runs every 15 minutes and the program picks the 6am/12pm/6pm Central
+slots itself. Images are embedded in the email (no hosting). Log: `~/graphicast/graphicast.log`.
+Disable the GitHub workflow afterwards so you don't get duplicate emails.

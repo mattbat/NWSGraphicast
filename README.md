@@ -250,7 +250,6 @@ GitHub's scheduler can start runs hours late. A Pi with cron runs on time.
 
 ```bash
 git clone https://github.com/mattbat/NWSGraphicast.git && cd NWSGraphicast
-git checkout claude/quirky-galileo-l232g5   # until merged
 bash deploy/pi/install.sh
 nano ~/graphicast/graphicast.env            # SMTP_USER, SMTP_PASSWORD, EMAIL_TO
 ~/graphicast/run.sh --dry-run --ignore-schedule --out /tmp/preview   # no email

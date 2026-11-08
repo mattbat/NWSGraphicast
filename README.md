@@ -259,4 +259,6 @@ nano ~/graphicast/graphicast.env            # SMTP_USER, SMTP_PASSWORD, EMAIL_TO
 
 Needs Python 3.11+. Cron runs every 15 minutes and the program picks the 6am/12pm/6pm Central
 slots itself. Images are embedded in the email (no hosting). Log: `~/graphicast/graphicast.log`.
+Keep the clone where it is: `run.sh` runs from it (the weather icons are read from its `assets/`).
+If you move it, run `install.sh` again from the new location.
 Disable the GitHub workflow afterwards so you don't get duplicate emails.

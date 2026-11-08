@@ -24,8 +24,11 @@ if [ ! -f "$CONF" ]; then
   echo "Created $CONF -- edit it and fill in the SMTP settings."
 fi
 
+# run.sh starts in the clone: the widget icons are read from ./assets/icons (they are not
+# installed into the venv), and cron would otherwise start in $HOME.
 cat > "$HOME_DIR/run.sh" <<RUN
 #!/usr/bin/env bash
+cd "$SRC"
 set -a; . "$CONF"; set +a
 exec "$HOME_DIR/venv/bin/python" -m graphicast "\$@"
 RUN
